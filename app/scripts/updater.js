@@ -1,11 +1,22 @@
 (function() {
     'use strict';
 
+    const appVersionUi = document.querySelector('#appVersion');
+
+    // Check if running in Electron
+    if (window.electronAPI) {
+        window.electronAPI.getAppVersion().then(version => {
+            appVersionUi.innerHTML = `App v${version}\n`;
+        });
+        // TODO: Implement Electron auto-update
+        return;
+    }
+
+    // NW.js specific code
     if (typeof nw == 'undefined') return;
 
-    const appVersionUi = document.querySelector('#appVersion');
     appVersionUi.innerHTML = `App v${nw.App.manifest.version_name}\n`;
-    
+
     const userPreferences = require('./scripts/userPreferences.js');
     if (!userPreferences.autoUpdate) return;
 

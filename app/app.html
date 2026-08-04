@@ -1,17 +1,18 @@
 <!DOCTYPE html>
 <html>
   <head>
+    <meta charset="UTF-8">
+    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self' https://raw.githubusercontent.com https://github.com; font-src 'self';">
     <title>OnlyKey App</title>
-    <link rel="stylesheet" href="/stylesheets/style.css" />
+    <link rel="stylesheet" href="./stylesheets/style.css" />
 
-    <!-- Scripts giving you few extra things in NW.js -->
-    <script src="/vendor/nw-boilerplate/external_links.js"></script>
-    <script src="/vendor/nw-boilerplate/window_state.js"></script>
+    <!-- WebHID adapter for Electron (must load before any HID code) -->
+    <script src="./scripts/webHidAdapter.js"></script>
 
     <!-- App dependencies -->
-    <script src="/vendor/FileSaver.js"></script>
-    <script src="/vendor/openpgp.min.js"></script>
-    <script src="/scripts/dialog-manager.js"></script>
+    <script src="./vendor/FileSaver.js"></script>
+    <!-- OpenPGP is lazy-loaded when needed for backup/restore or key operations -->
+    <script src="./scripts/dialog-manager.js"></script>
   </head>
 
   <body style="overflow: hidden">
@@ -30,7 +31,7 @@
     </div>
 
     <div id="main" class="hide">
-      <img src="/images/OnlyKey_Logo.png" width="340" />
+      <img src="./images/OnlyKey_Logo.png" width="340" />
 
       <nav>
         <a id="show-init-panel" href="">Setup</a>
@@ -51,13 +52,13 @@
               href="https://docs.crp.to/duousersguide.html#onlykey-setup"
               class="external tooltip fade"
               data-tooltip="Setup of OnlyKey includes things like setting PINs and backup passphrase. These can be changed later in the OnlyKey app."
-              ><img class="moveimage" src="/images/solid/rocket.svg" width="15px"
+              ><img class="moveimage" src="./images/solid/rocket.svg" width="15px"
             /></a></span>
             <span class="device-specific ok-classic">OnlyKey Setup <a
               href="https://docs.crp.to/usersguide.html#onlykey-setup"
               class="external tooltip fade"
               data-tooltip="Setup of OnlyKey includes things like setting PINs and backup passphrase. These can be changed later in the OnlyKey app."
-              ><img class="moveimage" src="/images/solid/rocket.svg" width="15px"
+              ><img class="moveimage" src="./images/solid/rocket.svg" width="15px"
             /></a></span>
             </h2>
             <p class="uninit-only">
@@ -351,7 +352,7 @@
           href="https://docs.crp.to/duousersguide.html#all-about-slots"
           class="external tooltip fade"
           data-tooltip="On the OnlyKey you have multiple buttons and each button has two slots assigned that can be activated by holding the button for less than or more than one second. Each slot can be set with a Label, URL, Username, Password, and multi-factor authentication.  The slots that have not been configured have no label so they are shown as 'empty'."
-          ><img class="moveimage" src="/images/solid/cogs.svg" width="19px"
+          ><img class="moveimage" src="./images/solid/cogs.svg" width="19px"
         /></a>
           </span>
           <span class="device-specific ok-classic">
@@ -359,7 +360,7 @@
             href="https://docs.crp.to/usersguide.html#all-about-slots"
             class="external tooltip fade"
             data-tooltip="On the OnlyKey you have multiple buttons and each button has two slots assigned that can be activated by holding the button for less than or more than one second. Each slot can be set with a Label, URL, Username, Password, and multi-factor authentication.  The slots that have not been configured have no label so they are shown as 'empty'."
-            ><img class="moveimage" src="/images/solid/cogs.svg" width="19px"
+            ><img class="moveimage" src="./images/solid/cogs.svg" width="19px"
           /></a>
           </span>
         </h2>
@@ -530,7 +531,7 @@
             >Learn more about slots
             <img
               class="moveimage"
-              src="/images/solid/external-link-alt.svg"
+              src="./images/solid/external-link-alt.svg"
               style="margin-left: 0.5em" /></a
           >.
          </span>
@@ -541,7 +542,7 @@
             >Learn more about slots
             <img
               class="moveimage"
-              src="/images/solid/external-link-alt.svg"
+              src="./images/solid/external-link-alt.svg"
               style="margin-left: 0.5em" /></a
           >.
          </span>
@@ -560,7 +561,7 @@
               >
                 <img
                   class="moveimage"
-                  src="/images/solid/question-circle.svg"
+                  src="./images/solid/question-circle.svg"
                 />
               </a>
               <input
@@ -586,7 +587,7 @@
                 href="https://docs.crp.to/usersguide.html#configurable-keyboard-layouts"
                 class="external tooltip fade"
                 data-tooltip="Select any of the supported keyboard layouts. "
-                ><img class="moveimage" src="/images/solid/question-circle.svg"
+                ><img class="moveimage" src="./images/solid/question-circle.svg"
               /></a>
               <select id="okKeyboardLayout" name="okKeyboardLayout">
                 <option value="1">US_ENGLISH (default)</option>
@@ -626,7 +627,7 @@
                 href="https://docs.crp.to/usersguide.html#configurable-led-brightness"
                 class="external tooltip fade"
                 data-tooltip="Change the OnlyKey LED brightness.&#xa;&#xa;1 - dimmest&#xa;8 - default&#xa;10 - brightest"
-                ><img class="moveimage" src="/images/solid/question-circle.svg"
+                ><img class="moveimage" src="./images/solid/question-circle.svg"
               /></a>
               <input
                 type="number"
@@ -651,7 +652,7 @@
               href="https://docs.crp.to/usersguide.html#sysadmin-mode"
               class="external tooltip fade"
               data-tooltip="By default, OnlyKey may only type regular keyboard characters, TAB, and RETURN. This is useful for entering login information like usernames and passwords. For more advanced use cases such as for system administrators, keystroke combinations such as CTRL-ALT-DEL and username/password or system commands may be used."
-              ><img class="moveimage" src="/images/solid/question-circle.svg"
+              ><img class="moveimage" src="./images/solid/question-circle.svg"
             /></a>
               <br/>
               Allow advanced keystroke combinations and system commands?
@@ -674,7 +675,7 @@
               href="https://docs.crp.to/usersguide.html#hmac-mode"
               class="external tooltip fade"
               data-tooltip="By default, you must press a button on OnlyKey to perform HMAC challenge-response operations. Selecting 'NO' for this option allows those operations without pressing a button."
-              ><img class="moveimage" src="/images/solid/question-circle.svg"
+              ><img class="moveimage" src="./images/solid/question-circle.svg"
             /></a>
               <br />
               Require a button press for HMAC challenge-response operations?
@@ -697,7 +698,7 @@
                 href="https://docs.crp.to/usersguide.html#configurable-wipe-mode"
                 class="external tooltip fade"
                 data-tooltip="By default, only sensitive data is wiped from OnlyKey when 10 incorrect PINs are entered. You can wipe the firmware as well by changing this option to 'Full Wipe.'"
-                ><img class="moveimage" src="/images/solid/question-circle.svg"
+                ><img class="moveimage" src="./images/solid/question-circle.svg"
               /></a>
               Only sensitive data is wiped by default.
               <br />
@@ -726,7 +727,7 @@
               >
                 <img
                   class="moveimage"
-                  src="/images/solid/question-circle.svg"
+                  src="./images/solid/question-circle.svg"
                 />
               </a>
               <input
@@ -748,7 +749,7 @@
                 href="https://docs.crp.to/usersguide.html#configurable-lock-button"
                 class="external tooltip fade"
                 data-tooltip="Choose a button (1-6) that you can quickly press to lock your OnlyKey and computer, or enter 0 to disable this feature."
-                ><img class="moveimage" src="/images/solid/question-circle.svg"
+                ><img class="moveimage" src="./images/solid/question-circle.svg"
               /></a>
               The OnlyKey and the computer are locked automatically when this
               lock button is pressed (0 to disable).
@@ -768,7 +769,7 @@
                 href="https://docs.crp.to/usersguide.html#challenge-mode"
                 class="external tooltip fade"
                 data-tooltip="By default, you must enter a 3-digit Challenge Code on OnlyKey to perform SSH or PGP operations. Changing this option to 'Button Press' allows those operations by tapping any button on your OnlyKey."
-              ><img class="moveimage" src="/images/solid/question-circle.svg" /></a>
+              ><img class="moveimage" src="./images/solid/question-circle.svg" /></a>
               <br />
               Enable or disable challenge for derived keys (SSH/PGP)
               <br />
@@ -781,7 +782,7 @@
                 href="https://docs.crp.to/usersguide.html#challenge-mode"
                 class="external tooltip fade"
                 data-tooltip="By default, you must enter a 3-digit Challenge Code on OnlyKey to perform SSH or PGP operations. Changing this option to 'Button Press' allows those operations by tapping any button on your OnlyKey."
-              ><img class="moveimage" src="/images/solid/question-circle.svg" /></a>
+              ><img class="moveimage" src="./images/solid/question-circle.svg" /></a>
               <br />
               Enable or disable challenge for stored keys (SSH/PGP)
               <br />
@@ -795,7 +796,7 @@
                 class="tooltip fade external"
                 data-tooltip="Backup key may be changed by default. Enabling this setting prevents any changes to the backup key and if no backup key is set will disable backups. Setting remains in effect until a factory default is completed."
                 href="https://docs.crp.to/usersguide.html#backup-key-mode"
-              ><img class="moveimage" src="/images/solid/question-circle.svg" /></a>
+              ><img class="moveimage" src="./images/solid/question-circle.svg" /></a>
               <br />
               <u>Locked</u> - <em>Backup key may not be changed on device</em>
               <br />
@@ -938,7 +939,7 @@
                 href="https://docs.crp.to/usersguide.html#secure-encrypted-backup-anywhere"
                 class="external tooltip fade"
                 data-tooltip="The Secure Encrypted Backup Anywhere feature allows you to backup OnlyKey on the go. The way that this works is that the OnlyKey encrypts everything on your OnlyKey using an encryption key and then types it out. This allows saving the backup in a text file or email on any computer."
-                ><img class="moveimage" src="/images/solid/upload.svg" width="19px"
+                ><img class="moveimage" src="./images/solid/upload.svg" width="19px"
               /></a>
               </h2>
 
@@ -1008,7 +1009,7 @@
                 href="https://docs.crp.to/usersguide.html#restore-from-backup"
                 class="external tooltip fade"
                 data-tooltip="Using the backup file created, OnlyKey can be restored to a previous state. This also allows restoring to a different OnlyKey or a second OnlyKey in order to have an extra."
-                ><img class="moveimage" src="/images/solid/user-plus.svg" width="19px"
+                ><img class="moveimage" src="./images/solid/user-plus.svg" width="19px"
               /></a>
               </h2>
 
@@ -1065,7 +1066,7 @@
                 href="https://docs.crp.to/upgradeguide.html#download-firmware"
                 class="external tooltip fade"
                 data-tooltip="OnlyKey supports auto firmware update through the OnlyKey App. This requires that 'Automatically check for firmware updates' is checked in your OnlyKey App settings. Firmware can also be manually downloaded by clicking here to open the firmware upgrade guide."
-                ><img class="moveimage" src="/images/solid/link.svg" width="19px"
+                ><img class="moveimage" src="./images/solid/link.svg" width="19px"
               /></a>
               </h2>
 
@@ -1276,97 +1277,46 @@
         </div>
       </div>
       <div id="tools-panel" class="hide panel">
-        <div class="flex-container">
-          <h2>
-            Securely use OpenPGP in the browser with OnlyKey WebCrypt <a
-            href="https://docs.crp.to/webcrypt.html"
-            class="external tooltip fade"
-            data-tooltip="OnlyKey WebCrypt provides a way to securely use OpenPGP in the browser. The Webcrypt app loads everything necessary to encrypt messages and files directly in the local browser without the need to send messages or files over the Internet. Data between OnlyKey and the browser is end-to-end encrypted."
-            ><img class="moveimage" src="/images/solid/question-circle.svg" width="19px"
-          /></a>
-          </h2>
-          <div class="flex-item">
-            <button type="button" >
-              <span class="h2">
-              <a
-                style="color: white"
-                href="https://apps.crp.to/app/encrypt"
-                class="external tooltip fade"
-                data-tooltip="Securely encrypt messages in the browser using OnlyKey."
-                >Encrypt Messages <img class="moveimage" src="/images/solid/lock.svg" width="50px"
-                />
-              </a></span>
-            </button>
-            <button type="button" >
-              <span class="h2">
-                <a
-                  style="color: white"
-                  href="https://apps.crp.to/app/decrypt"
-                  class="external tooltip fade"
-                  data-tooltip="Securely decrypt OpenPGP encrypted messages in the browser using OnlyKey"
-                  >Decrypt Messages <img class="moveimage" src="/images/solid/unlock.svg" width="50px"
-                  />
-              </a></span>
-            </button>
-            <br>
-            <br>
-            <button type="button" >
-              <span class="h2">
-                <a
-                  style="color: white" href="https://apps.crp.to/app/encrypt-file"
-                  class="external tooltip fade"
-                  data-tooltip="Securely encrypt files in the browser using OnlyKey."
-                  >Encrypt Files <img class="moveimage" src="/images/solid/file-archive.svg" width="40px"
-                  />
-              </a></span>
-            </button>
-            <button type="button" >
-              <span class="h2">
-                <a
-                  style="color: white"
-                  href="https://apps.crp.to/app/decrypt-file"
-                  class="external tooltip fade"
-                  data-tooltip="Securely decrypt OpenPGP encrypted files in the browser using OnlyKey."
-                  >Decrypt Files <img class="moveimage" src="/images/solid/file-alt.svg" width="40px"
-                  />
-              </a></span>
-            </button>
-          </div>
-        </div>
         <h2>
-          <br>Securely use OpenPGP and SSH on a local computer with OnlyKey Agent <a
+          Securely use OpenPGP in the browser with OnlyKey WebCrypt <a
+          href="https://docs.crp.to/webcrypt.html"
+          class="external tooltip fade"
+          data-tooltip="OnlyKey WebCrypt provides a way to securely use OpenPGP in the browser. The Webcrypt app loads everything necessary to encrypt messages and files directly in the local browser without the need to send messages or files over the Internet. Data between OnlyKey and the browser is end-to-end encrypted."
+          ><img class="moveimage" src="./images/solid/question-circle.svg" width="19px"
+        /></a>
+        </h2>
+        <div class="webcrypt-buttons">
+          <button type="button" class="tool-btn tooltip fade" data-tooltip="Securely encrypt messages in the browser using OnlyKey." onclick="window.open('https://apps.crp.to/app/encrypt', '_blank')">
+            <img class="moveimage" src="./images/solid/lock.svg" width="16px" /> Encrypt Messages
+          </button>
+          <button type="button" class="tool-btn tooltip fade" data-tooltip="Securely decrypt OpenPGP encrypted messages in the browser using OnlyKey" onclick="window.open('https://apps.crp.to/app/decrypt', '_blank')">
+            <img class="moveimage" src="./images/solid/unlock.svg" width="16px" /> Decrypt Messages
+          </button>
+          <button type="button" class="tool-btn tooltip fade" data-tooltip="Securely encrypt files in the browser using OnlyKey." onclick="window.open('https://apps.crp.to/app/encrypt-file', '_blank')">
+            <img class="moveimage" src="./images/solid/file-archive.svg" width="16px" /> Encrypt Files
+          </button>
+          <button type="button" class="tool-btn tooltip fade" data-tooltip="Securely decrypt OpenPGP encrypted files in the browser using OnlyKey." onclick="window.open('https://apps.crp.to/app/decrypt-file', '_blank')">
+            <img class="moveimage" src="./images/solid/file-alt.svg" width="16px" /> Decrypt Files
+          </button>
+        </div>
+
+        <h2>
+          Securely use OpenPGP and SSH on a local computer with OnlyKey Agent <a
           href="https://docs.crp.to/onlykey-agent.html"
           class="external tooltip fade"
           data-tooltip="OnlyKey Agent is a hardware-based SSH and GPG agent that allows offline cold storage of your SSH and OpenPGP keys. Instead of keeping keys on a computer, OnlyKey generates and securely stores your keys off of the computer and you can still easily use SSH and GPG."
-          ><img class="moveimage" src="/images/solid/question-circle.svg" width="19px"
+          ><img class="moveimage" src="./images/solid/question-circle.svg" width="19px"
         /></a>
         </h2>
-        <div class="flex-item">
-          <button type="button" >
-            <span class="h2">
-            <a
-              style="color: white"
-              href="https://docs.crp.to/onlykey-agent.html#gpg-agent-quickstart-guide"
-              class="external tooltip fade"
-              data-tooltip="Provides a way to securely use OnlyKey for OpenPGP on a local computer. Instead of keeping keys on a computer, OnlyKey generates and securely stores keys off of the computer and you can still easily use GPG to do things like sign emails, git commits, software packages etc."
-              >OnlyKey GPG Agent <img class="moveimage" src="/images/solid/envelope.svg" width="50px"
-              /> <img class="moveimage" src="/images/solid/file-code.svg" width="50px"
-              /> <img class="moveimage" src="/images/solid/code-branch.svg" width="50px"
-              />
-            </a></span>
+        <div class="agent-buttons">
+          <button type="button" class="tool-btn tooltip fade" data-tooltip="Provides a way to securely use OnlyKey for OpenPGP on a local computer. Instead of keeping keys on a computer, OnlyKey generates and securely stores keys off of the computer and you can still easily use GPG to do things like sign emails, git commits, software packages etc." onclick="window.open('https://docs.crp.to/onlykey-agent.html#gpg-agent-quickstart-guide', '_blank')">
+            <img class="moveimage" src="./images/solid/envelope.svg" width="16px" />
+            <img class="moveimage" src="./images/solid/file-code.svg" width="16px" />
+            <img class="moveimage" src="./images/solid/code-branch.svg" width="16px" />
+            OnlyKey GPG Agent
           </button>
-          <br>
-          <br>
-          <button type="button" >
-            <span class="h2">
-            <a
-              style="color: white"
-              href="https://docs.crp.to/onlykey-agent.html#ssh-agent-quickstart-guide"
-              class="external tooltip fade"
-              data-tooltip="Provides a way to securely use OnlyKey for SSH authentication on a local computer. Instead of keeping keys on a computer, OnlyKey generates and securely stores your keys off of the computer and you can still easily use SSH."
-              >OnlyKey SSH Agent <img class="moveimage" src="/images/solid/terminal.svg" width="50px"
-              />
-            </a></span>
+          <button type="button" class="tool-btn tooltip fade" data-tooltip="Provides a way to securely use OnlyKey for SSH authentication on a local computer. Instead of keeping keys on a computer, OnlyKey generates and securely stores your keys off of the computer and you can still easily use SSH." onclick="window.open('https://docs.crp.to/onlykey-agent.html#ssh-agent-quickstart-guide', '_blank')">
+            <img class="moveimage" src="./images/solid/terminal.svg" width="16px" /> OnlyKey SSH Agent
           </button>
         </div>
       </div>
@@ -1382,6 +1332,13 @@
 
     <dialog id="disconnected-dialog" class="silver-gradient-bg">
       <h1>Please connect your OnlyKey</h1>
+      <p id="connect-instructions" style="display: none; margin-top: 20px;">
+        <button id="request-device-btn" onclick="requestOnlyKeyAccess()" style="padding: 10px 20px; font-size: 16px; cursor: pointer;">
+          Click here to grant device access
+        </button>
+        <br><br>
+        <small>WebHID requires explicit permission to access USB devices.</small>
+      </p>
     </dialog>
 
     <dialog id="working-dialog" class="silver-gradient-bg">
@@ -1475,7 +1432,7 @@
       <form name="slot-config-form" id="slot-config-form">
         <p>
           Check the box/radio next to the fields you want to set<br />
-          <img class="moveimage" src="/images/solid/arrow-down.svg" />
+          <img class="moveimage" src="./images/solid/arrow-down.svg" />
         </p>
         <table>
           <tr class="universal-option">
@@ -1857,13 +1814,13 @@
         Configure button 1 press (touch for less than 1 sec) to automatically type
         a password:
         <br />
-        <img class="moveimage" src="/images/solid/mouse-pointer.svg" /> Click
+        <img class="moveimage" src="./images/solid/mouse-pointer.svg" /> Click
         button [1a]
         <br />
-        <img class="moveimage" src="/images/regular/check-square.svg" /> Check
+        <img class="moveimage" src="./images/regular/check-square.svg" /> Check
         boxes next to [Password] and [Return after Password]
         <br />
-        <img class="moveimage" src="/images/regular/keyboard.svg" />
+        <img class="moveimage" src="./images/regular/keyboard.svg" />
         Enter/re-enter password and click [Set Slot]
       </div>
       <span class="device-specific ok-duo">OnlyKey DUO only supports static-password OR Multi-Factor (MFA) 
@@ -1875,16 +1832,16 @@
         Configure button 1 long-press (touch more than 1 sec) to type a username
         and password into a login form:
         <br />
-        <img class="moveimage" src="/images/solid/mouse-pointer.svg" /> Click
+        <img class="moveimage" src="./images/solid/mouse-pointer.svg" /> Click
         button [1b]
         <br />
-        <img class="moveimage" src="/images/regular/thumbs-up.svg" /> Configure
+        <img class="moveimage" src="./images/regular/thumbs-up.svg" /> Configure
         a password as in example #1 for 1b
         <br />
-        <img class="moveimage" src="/images/regular/check-square.svg" /> Check
+        <img class="moveimage" src="./images/regular/check-square.svg" /> Check
         boxes next to [Username] and [Tab after Username]
         <br />
-        <img class="moveimage" src="/images/regular/keyboard.svg" /> Enter a
+        <img class="moveimage" src="./images/regular/keyboard.svg" /> Enter a
         username and click [Set Slot]
       </div>
 
@@ -1893,26 +1850,26 @@
         Configure button 2 tap to automatically type the URL of a login page
         into your browser, followed by a username and password:
         <br />
-        <img class="moveimage" src="/images/solid/mouse-pointer.svg" /> Click
+        <img class="moveimage" src="./images/solid/mouse-pointer.svg" /> Click
         button [2a]
         <br />
-        <img class="moveimage" src="/images/regular/thumbs-up.svg" /> Configure
+        <img class="moveimage" src="./images/regular/thumbs-up.svg" /> Configure
         username/password as in example #2 for 2a
         <br />
-        <img class="moveimage" src="/images/regular/check-square.svg" /> Check
+        <img class="moveimage" src="./images/regular/check-square.svg" /> Check
         boxes next to [URL] and [Delay]
         <br />
-        <img class="moveimage" src="/images/regular/keyboard.svg" /> Type a URL
+        <img class="moveimage" src="./images/regular/keyboard.svg" /> Type a URL
         and a delay in seconds (time to wait for URL to load) and click [Set
         Slot]
       </div>
     </dialog>
 
-    <script src="/scripts/onlyKey/OnlyKeyWizard.js"></script>
-    <script src="/scripts/onlyKey/OnlyKeyComm.js"></script>
-    <script src="/scripts/updater.js"></script>
-    <script src="/scripts/tray.js"></script>
-    <script src="/scripts/external-links.js"></script>
-    <script src="/scripts/dialog-links.js"></script>
+    <script src="./scripts/onlyKey/OnlyKeyWizard.js"></script>
+    <script src="./scripts/onlyKey/OnlyKeyComm.js"></script>
+    <script src="./scripts/updater.js"></script>
+    <script src="./scripts/tray.js"></script>
+    <script src="./scripts/external-links.js"></script>
+    <script src="./scripts/dialog-links.js"></script>
   </body>
 </html>

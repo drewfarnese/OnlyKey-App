@@ -1,13 +1,12 @@
-const webdriver = require('selenium-webdriver');
-const By = webdriver.By;
-const until = webdriver.until;
-const chai = require('chai');
-const chaiAsPromised = require('chai-as-promised');
-const expect = chai.expect;
+import webdriver from 'selenium-webdriver';
+import chai from 'chai';
+import chaiAsPromised from 'chai-as-promised';
+import driver from './driver.mjs';
 
-const driver = require('./driver.js');
+const { By, until } = webdriver;
 
 chai.use(chaiAsPromised);
+const { expect } = chai;
 
 describe('Configuring a slot on the OnlyKey', function() {
 
@@ -103,3 +102,4 @@ describe('Configuring a slot on the OnlyKey', function() {
             Array.from(messageToBuffer('\xff\xff\xff\xff\xe6\x01\x062')));
     });
 });
+

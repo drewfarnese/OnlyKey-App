@@ -1,6 +1,8 @@
 "use strict";
 
-const argv = require("yargs").argv;
+const yargs = require("yargs");
+const { hideBin } = require("yargs/helpers");
+const argv = yargs(hideBin(process.argv)).parse();
 const os = require("os");
 
 module.exports.os = function () {

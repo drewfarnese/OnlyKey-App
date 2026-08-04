@@ -1,13 +1,12 @@
-const webdriver = require('selenium-webdriver');
-const By = webdriver.By;
-const until = webdriver.until;
-const chai = require('chai');
-const chaiAsPromised = require('chai-as-promised');
-const expect = chai.expect;
+import webdriver from 'selenium-webdriver';
+import chai from 'chai';
+import chaiAsPromised from 'chai-as-promised';
+import driver from './driver.mjs';
 
-const driver = require('./driver.js');
+const { By, until } = webdriver;
 
 chai.use(chaiAsPromised);
+const { expect } = chai;
 
 // A first integration test. Mostly a proof of concept to show that Selenium,
 // Mocha, and nwjs can work together.
@@ -29,3 +28,4 @@ describe('OnlyKey Configuration', function() {
         return expect(working.getAttribute('open')).to.eventually.equal(null);
     });
 });
+

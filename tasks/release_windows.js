@@ -1,6 +1,5 @@
 'use strict';
 
-var Q = require('q');
 var childProcess = require('child_process');
 var jetpack = require('fs-jetpack');
 var utils = require('./utils');
@@ -20,7 +19,7 @@ var init = function (params={}) {
     node_modules_dir = params.node_modules_dir || 'node_modules';
 
     readyAppDir = tmpDir.cwd(manifest.name);
-    return Q();
+    return Promise.resolve();
 };
 
 var copyRuntime = function () {
@@ -36,37 +35,35 @@ var prepareOsSpecificThings = function () {
 };
 
 var createInstaller = function () {
-    var deferred = Q.defer();
+    return new Promise(function (resolve) {
+        var finalPackageName = manifest.name + '_' + manifest.version + '.exe';
+        var installScript = projectDir.read('resources/windows/installer.nsi');
+        installScript = utils.replace(installScript, {
+            name: manifest.name,
+            productName: manifest.productName,
+            version: manifest.version,
+            src: readyAppDir.path(),
+            dest: releasesDir.path(finalPackageName),
+            icon: readyAppDir.path('icon.ico'),
+            setupIcon: projectDir.path('resources/windows/setup-icon.ico'),
+            banner: projectDir.path('resources/windows/setup-banner.bmp'),
+        });
+        tmpDir.write('installer.nsi', installScript);
 
-    var finalPackageName = manifest.name + '_' + manifest.version + '.exe';
-    var installScript = projectDir.read('resources/windows/installer.nsi');
-    installScript = utils.replace(installScript, {
-        name: manifest.name,
-        productName: manifest.productName,
-        version: manifest.version,
-        src: readyAppDir.path(),
-        dest: releasesDir.path(finalPackageName),
-        icon: readyAppDir.path('icon.ico'),
-        setupIcon: projectDir.path('resources/windows/setup-icon.ico'),
-        banner: projectDir.path('resources/windows/setup-banner.bmp'),
+        console.log('Building installer with NSIS...');
+
+        // Remove destination file if already exists.
+        releasesDir.remove(finalPackageName);
+
+        // Note: NSIS have to be added to PATH (environment variables).
+        var nsis = childProcess.spawn('makensis', [tmpDir.path('installer.nsi')]);
+        nsis.stdout.pipe(process.stdout);
+        nsis.stderr.pipe(process.stderr);
+        nsis.on('close', function () {
+            console.log('Installer ready!', releasesDir.path(finalPackageName));
+            resolve();
+        });
     });
-    tmpDir.write('installer.nsi', installScript);
-
-    console.log('Building installer with NSIS...');
-
-    // Remove destination file if already exists.
-    releasesDir.remove(finalPackageName);
-
-    // Note: NSIS have to be added to PATH (environment variables).
-    var nsis = childProcess.spawn('makensis', [tmpDir.path('installer.nsi')]);
-    nsis.stdout.pipe(process.stdout);
-    nsis.stderr.pipe(process.stderr);
-    nsis.on('close', function () {
-        console.log('Installer ready!', releasesDir.path(finalPackageName));
-        deferred.resolve();
-    });
-
-    return deferred.promise;
 };
 
 var cleanClutter = function () {

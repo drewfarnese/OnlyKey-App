@@ -1,6 +1,5 @@
 'use strict';
 
-var Q = require('q');
 var childProcess = require('child_process');
 var jetpack = require('fs-jetpack');
 var utils = require('./utils');
@@ -24,7 +23,7 @@ var init = function (params={}) {
     packName = manifest.name + '_' + manifest.version;
     packDir = tmpDir.dir(packName);
     readyAppDir = packDir.cwd('opt', manifest.name);
-    return Q();
+    return Promise.resolve();
 };
 
 var copyRuntime = function () {
@@ -56,63 +55,59 @@ var prepareOsSpecificThings = function () {
     // mode >=0755 и <=0775
     packDir.write('DEBIAN/postinst' , postinst, {mode: '755'});
 
-    return Q();
+    return Promise.resolve();
 };
 
 var updateRuntimeFileMode = function () {
-    var deferred = Q.defer();
+    return new Promise(function (resolve) {
+        console.log('chmodding nwjs runtime...');
 
-    console.log('chmodding nwjs runtime...');
-
-    childProcess.exec('chmod -R 755 ' + readyAppDir.path(),
-        function (error, stdout, stderr) {
-            if (error || stderr) {
-                console.log("ERROR while chmodding nwjs runtime:");
-                console.log(error);
-                console.log(stderr);
-            }
-            deferred.resolve();
-        });
-
-    return deferred.promise;
+        childProcess.exec('chmod -R 755 ' + readyAppDir.path(),
+            function (error, stdout, stderr) {
+                if (error || stderr) {
+                    console.log("ERROR while chmodding nwjs runtime:");
+                    console.log(error);
+                    console.log(stderr);
+                }
+                resolve();
+            });
+    });
 };
 
 var packToDebFile = function () {
-    var deferred = Q.defer();
+    return new Promise(function (resolve) {
+        var debFileName = packName + '_amd64.deb';
+        var debPath = releasesDir.path(debFileName);
 
-    var debFileName = packName + '_amd64.deb';
-    var debPath = releasesDir.path(debFileName);
+        console.log('Creating DEB package...');
 
-    console.log('Creating DEB package...');
+        // Counting size of the app in KiB
+        var appSize = Math.round(readyAppDir.inspectTree('.').size / 1024);
 
-    // Counting size of the app in KiB
-    var appSize = Math.round(readyAppDir.inspectTree('.').size / 1024);
-
-    // Preparing debian control file
-    var control = projectDir.read('resources/linux/DEBIAN/control');
-    control = utils.replace(control, {
-        name: manifest.name,
-        description: manifest.description,
-        version: manifest.version,
-        author: manifest.author,
-        size: appSize
-    });
-    packDir.write('DEBIAN/control', control);
-
-    // Build the package...
-    childProcess.exec('fakeroot dpkg-deb -Zxz --build ' + packDir.path() + ' ' + debPath,
-        function (error, stdout, stderr) {
-            if (error || stderr) {
-                console.log("ERROR while building DEB package:");
-                console.log(error);
-                console.log(stderr);
-            } else {
-                console.log('DEB package ready!', debPath);
-            }
-            deferred.resolve();
+        // Preparing debian control file
+        var control = projectDir.read('resources/linux/DEBIAN/control');
+        control = utils.replace(control, {
+            name: manifest.name,
+            description: manifest.description,
+            version: manifest.version,
+            author: manifest.author,
+            size: appSize
         });
+        packDir.write('DEBIAN/control', control);
 
-    return deferred.promise;
+        // Build the package...
+        childProcess.exec('fakeroot dpkg-deb -Zxz --build ' + packDir.path() + ' ' + debPath,
+            function (error, stdout, stderr) {
+                if (error || stderr) {
+                    console.log("ERROR while building DEB package:");
+                    console.log(error);
+                    console.log(stderr);
+                } else {
+                    console.log('DEB package ready!', debPath);
+                }
+                resolve();
+            });
+    });
 };
 
 var cleanClutter = function () {
