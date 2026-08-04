@@ -292,14 +292,15 @@ if (chrome.passwordsPrivate) {
 
     const field = this.initForm[fieldName];
 
-    field.removeEventListener('change', this.enableDisclaimer);
-
     this.btnNext.disabled = !field.checked;
     this.btnSubmitStep.disabled = !field.checked;
 
-    field.addEventListener('change', e => {
-      this.enableDisclaimer(fieldName);
-    });
+    // register at most one change handler per field
+    this.disclaimerHandlers = this.disclaimerHandlers || {};
+    if (!this.disclaimerHandlers[fieldName]) {
+      this.disclaimerHandlers[fieldName] = () => this.enableDisclaimer(fieldName);
+      field.addEventListener('change', this.disclaimerHandlers[fieldName]);
+    }
   };
 
   Wizard.prototype.setUnguidedStep = function (newStep) {
@@ -314,7 +315,7 @@ if (chrome.passwordsPrivate) {
 
   Wizard.prototype.setAdvancedSetup = function (settingArg) {
     let setting = settingArg;
-    if (typeof setting === undefined) {
+    if (typeof setting === 'undefined') {
       setting = document.getElementById('advancedSetup').checked;
     }
     this.advancedSetup = Boolean(setting);
@@ -609,12 +610,15 @@ if (chrome.passwordsPrivate) {
     this.unlockOkDuoSubmitBtn = document.getElementById('unlockOkDuoSubmit');
     this.unlockOkDuoSubmitBtn.onclick = e => {
       e && e.preventDefault && e.preventDefault();
-      this.onlyKey.sendPin_DUO([this.unlockOkDuoPinInput.value], false, function (err, msg) {
+      // prevent queueing multiple attempts against a device that only allows three
+      this.unlockOkDuoSubmitBtn.disabled = true;
+      this.onlyKey.sendPin_DUO([this.unlockOkDuoPinInput.value], false, (err, msg) => {
+        this.unlockOkDuoSubmitBtn.disabled = false;
         if (err) {
           console.dir({
             UNLOCK_ERR: err
           });
-          throw Error('error');
+          document.getElementById("incorrect-pin-duo").classList.remove("hide");
         }
       });
       this.unlockOkDuoPinInput.value = null;
@@ -625,7 +629,14 @@ if (chrome.passwordsPrivate) {
     this.selectPrivateKeyConfirmBtn = document.getElementById('selectPrivateKeyConfirm');
     this.selectPrivateKeyConfirmBtn.onclick = e => {
       e && e.preventDefault && e.preventDefault();
-      const selectedKey = document.querySelector('input[name="rsaKeySelect"]:checked').value;
+      const selectedKeyInput = document.querySelector('input[name="rsaKeySelect"]:checked');
+      const selectPrivateKeyError = document.getElementById('selectPrivateKeyError');
+      if (!selectedKeyInput) {
+        selectPrivateKeyError.innerHTML = 'Please choose a key to save.';
+        return;
+      }
+      selectPrivateKeyError.innerHTML = '';
+      const selectedKey = selectedKeyInput.value;
       this.onlyKey.confirmRsaKeySelect(this.onlyKey.tempRsaKeys[selectedKey], null, err => {
         if (err) {
           //   return ???
@@ -1126,6 +1137,10 @@ if (chrome.passwordsPrivate) {
         this.onlyKey.setSlot(null, fieldMap[field].msgId, formValue, (err, msg) => {
           if (!err) {
             this.setSlot();
+          } else {
+            // surface the device error and let the user try again
+            formErrorsContainer.innerHTML = `<ul><li>${err}</li></ul>`;
+            this.enableSlotButtons();
           }
         });
 
@@ -1140,6 +1155,11 @@ if (chrome.passwordsPrivate) {
     this.onlyKey.getLabels();
     this.dialog.close(this.slotConfigDialog);
   }
+
+  Wizard.prototype.enableSlotButtons = function () {
+    if (this.slotSubmit) this.slotSubmit.disabled = false;
+    if (this.slotWipe) this.slotWipe.disabled = false;
+  };
 
   Wizard.prototype.getMode = function () {
     return this.initForm['ConfigMode'].value;
@@ -1319,7 +1339,7 @@ if (chrome.passwordsPrivate) {
         <h3>Enter PIN for Second Profile on OnlyKey Keypad</h3>
         <p>
           Your OnlyKey is now set up to store 12 accounts and is ready to use! OnlyKey permits adding
-          a second profile to store an additonal 12 accounts (24 total). Set a second PIN to access the
+          a second profile to store an additional 12 accounts (24 total). Set a second PIN to access the
           second profile. Second profile must be configured during initial setup and cannot be set up later.
           <br /><br />
           <td>
@@ -1361,7 +1381,7 @@ if (chrome.passwordsPrivate) {
         <h3>Enter PIN for Second Profile on OnlyKey Keypad</h3>
         <p>
           Your OnlyKey is now set up to store 12 accounts and is ready to use! OnlyKey
-          permits adding a second profile to store an additonal 12 accounts (24 total).
+          permits adding a second profile to store an additional 12 accounts (24 total).
           Set a second PIN to access the second profile. Second profile must be
           configured during initial setup and cannot be set up later. <br /><br />
           <td>
@@ -1413,7 +1433,6 @@ if (chrome.passwordsPrivate) {
       slot = slot.toLowerCase();
       slotLabel = rootElement.querySelector('#slotLabel' + slot);
     }
-    console.log(`setSlotLabel: slot=${slot}, label=${label}, slotLabelId=${slotLabel ? slotLabel.id : 'null'}`);
 
     if (!slotLabel) return;
 
@@ -1455,13 +1474,8 @@ if (chrome.passwordsPrivate) {
       { errors: pin1Errors, containerId: 'duoPrimaryPinErrors' },
       { errors: pin3Errors, containerId: 'duoSdPinErrors' }
     ].forEach(pinForm => {
-      document.getElementById(pinForm.containerId).innerHTML = '';
-      if (pinForm.errors.length) {
-        errorsFound = true;
-        for (let i = 0; i < pinForm.errors.length; i++) {
-          document.getElementById(pinForm.containerId).innerHTML += (i > 0 ? '<br/>' : '') + pinForm.errors[i];
-        }
-      }
+      errorsFound = errorsFound || !!pinForm.errors.length;
+      document.getElementById(pinForm.containerId).innerHTML = pinForm.errors.join('<br/>');
     });
 
     return !errorsFound && [pin1, pin2, pin3];
@@ -1476,6 +1490,11 @@ if (chrome.passwordsPrivate) {
     console.info("Creating wizard instance...");
     onlyKeyConfigWizard = new Wizard();
     OnlyKeyHID(onlyKeyConfigWizard);
+
+    // No form in this app should ever navigate on submit; without this,
+    // pressing Enter in a single-field form (e.g. Preferences) reloads the app
+    // via HTML implicit form submission.
+    document.addEventListener('submit', e => e.preventDefault());
 
     // toggle advanced setup mode and update wizard steps accordingly
     document.getElementById("advancedSetup").addEventListener('change', toggleAdvancedUI.bind(onlyKeyConfigWizard));

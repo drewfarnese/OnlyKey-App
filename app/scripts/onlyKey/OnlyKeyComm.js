@@ -415,10 +415,7 @@ OnlyKey.prototype.setLastMessage = function (type, msgStr = "") {
     };
     var messages = this.lastMessages[type] || [];
     var numberToKeep = 3;
-    if (messages.length === numberToKeep) {
-      messages.slice(numberToKeep - 1);
-    }
-    messages = [newMessage].concat(messages);
+    messages = [newMessage].concat(messages).slice(0, numberToKeep);
     this.lastMessages[type] = messages;
     if (type === "received" && onlyKeyConfigWizard) {
       onlyKeyConfigWizard.setLastMessages(messages);
@@ -515,7 +512,7 @@ function handleGetLabels(err, msg) {
     // Don't return early - continue to process this first message
   }
 
-  // if second char of response is a pipe, theses are labels
+  // if second char of response is a pipe, these are labels
   const msgParts = msg.split("|");
   let slotNum = msgParts[0];
   switch (slotNum) {
@@ -623,7 +620,7 @@ OnlyKey.prototype.sendPin_DUO = function (pins, setpin, callback) {
       document.getElementById("locked-text-duo").classList.add("hide");
       document.getElementById("max-pin-attempts-duo").classList.remove("hide");
       document.getElementById("incorrect-pin-duo").classList.add("hide");
-      console.info("PIN attempts exeeded");
+      console.info("PIN attempts exceeded");
     } else if (msgReceived.indexOf("INITIALIZED-D") === 0) {
       // incorrect pin dialog
       document.getElementById("locked-text-duo").classList.remove("hide");
@@ -793,9 +790,8 @@ OnlyKey.prototype.submitFirmware = function (fileSelector, cb) {
         let contents = e.target && e.target.result && e.target.result.trim();
 
         try {
-          console.info("unparsed contents", contents);
           contents = parseFirmwareData(contents);
-          console.info("parsed contents", contents);
+          console.info(`parsed firmware contents: ${contents.length} blocks`);
         } catch (parseError) {
           throw new Error("Could not parse firmware file.\n\n" + parseError);
         }
@@ -1639,12 +1635,10 @@ function initSlotConfigForm() {
   const deviceType = myOnlyKey.getDeviceType();
   const deviceBtns = ui.slotConfigBtns.getElementsByClassName(`ok-${deviceType}`)[0];
   const configBtns = Array.from(deviceBtns.getElementsByTagName('input'));
-  console.log('initSlotConfigForm: deviceType=', deviceType, 'labels=', JSON.stringify(myOnlyKey.labels));
   configBtns.forEach((btn, i) => {
     const slotId = btn.dataset.slotId || btn.value; // prefer data-slot-id
     const labelIndex = myOnlyKey.getSlotNum(slotId);
     const labelText = myOnlyKey.labels[labelIndex - 1] || 'empty';
-    console.log(`  btn[${i}]: slotId=${slotId}, labelIndex=${labelIndex}, labelText=${labelText}`);
     // Use slotId directly instead of index to ensure correct label element is updated
     onlyKeyConfigWizard.setSlotLabel(slotId, labelText);
     btn.addEventListener('click', showSlotConfigForm);
@@ -1652,10 +1646,14 @@ function initSlotConfigForm() {
   ui.slotConfigDialog
     .getElementsByClassName('slot-config-close')[0]
     .addEventListener('click', closeSlotConfigForm);
-  ui.slotConfigDialog.addEventListener('close', () => {
-    document.getElementById('slotConfigErrors').innerHTML = '';
-    ui.slotConfigForm.reset()
-  });
+  ui.slotConfigDialog.addEventListener('close', onSlotConfigDialogClose);
+}
+
+// named handler so repeated addEventListener calls in initSlotConfigForm dedupe
+function onSlotConfigDialogClose() {
+  document.getElementById('slotConfigErrors').innerHTML = '';
+  ui.slotConfigForm.reset();
+  onlyKeyConfigWizard.enableSlotButtons();
 }
 
 function showSlotConfigForm(e) {
@@ -2181,9 +2179,8 @@ function submitFirmwareForm(e) {
         let contents = e.target && e.target.result && e.target.result.trim();
 
         try {
-          console.info("unparsed contents", contents);
           contents = parseFirmwareData(contents);
-          console.info("parsed contents", contents);
+          console.info(`parsed firmware contents: ${contents.length} blocks`);
         } catch (parseError) {
           return ui.firmwareForm.setError(
             "Could not parse firmware file.\n\n" + parseError
@@ -2229,30 +2226,33 @@ async function loadFirmware() {
     // There is a firmware file to load]
     console.info(`Firmware file parsed into ${fwlength} lines.`); //Each line is a block in the blockchain
 
+    // build the progress UI once and only update the percentage text so the
+    // animated gif is not torn down and re-created on every block
+    firmwaretext.innerHTML =
+      "Loading Firmware<br><br>" +
+      "<img src='/images/Pacman-0.8s-200px.gif' height='40' width='40'><br><br>" +
+      "<span id='firmware-progress'>0</span> Percent Complete";
+    const firmwareProgress = document.getElementById("firmware-progress");
+    let lastPercent = 0;
+
     for (let i = 0; i < fwlength; i++) {
       const line = onlyKeyConfigWizard.newFirmware[i].toString();
-      console.info(`Line ${i}: ${line}`);
 
-      firmwaretext.innerHTML =
-        "Loading Firmware<br><br>" +
-        "<img src='/images/Pacman-0.8s-200px.gif' height='40' width='40'><br><br>" +
-        Number.parseFloat((i / fwlength) * 100).toFixed(0) +
-        " Percent Complete";
+      const percent = Math.floor((i / fwlength) * 100);
+      if (percent !== lastPercent) {
+        lastPercent = percent;
+        firmwareProgress.textContent = percent;
+      }
 
       try {
         await submitFirmwareData(line);
         if (i < fwlength - 1) {
-          console.info(`This signature`, line.slice(0, 64));
-          console.info(`Block info`, line.slice(64, 65));
-          console.info(`Next signature`, line.slice(65, 129));
           await listenForMessageIncludes("NEXT BLOCK");
         } else {
-          console.info(`This signature`, line.slice(0, 64));
-          console.info(`Block info`, line.slice(64, 65));
           await listenForMessageIncludes("SUCCESSFULLY LOADED FW");
           firmwaretext.innerHTML = "Firmware Load Complete!";
           ui.firmwareForm.setError("");
-          document.getElementById("firmwareSelectFile").value = "";
+          ui.firmwareForm.firmwareSelectFile.value = "";
           onlyKeyConfigWizard.newFirmware = null;
           //
         }
@@ -2371,15 +2371,13 @@ async function checkForNewFW(checkForNewFW, fwUpdateSupport, version) {
                       if (fwBody) {
                         var contents = fwBody.trim();
                         try {
-                          console.info("unparsed contents", contents);
                           contents = parseFirmwareData(contents);
-                          console.info("parsed contents", contents);
+                          console.info(`parsed firmware contents: ${contents.length} blocks`);
                         } catch (parseError) {
                           throw new Error(
                             "Could not parse firmware file.\n\n" + parseError
                           );
                         }
-                        console.info(contents);
                         onlyKeyConfigWizard.newFirmware = contents;
                         const temparray = "1234";
                         await submitFirmwareData(temparray, function (err) {
@@ -2514,12 +2512,9 @@ function parseFirmwareData(contents = "") {
   const newContent = [];
 
   for (let i = 0; i < lines.length - 1; i++) {
-    let line = lines[i];
-    console.info(`LENGTH: ${line.length}`);
-    console.info(`BLOCK: ${line}`);
-    newContent.push(line);
+    newContent.push(lines[i]);
   }
-  
+
   return newContent;
 }
 
@@ -2591,9 +2586,7 @@ function submitWipeMode(e, wipeMode) {
 function submitTypeSpeed(e) {
   e && e.preventDefault && e.preventDefault();
   var typeSpeed = parseInt(ui.typeSpeedForm.okTypeSpeed.value, 10);
-  console.info('typeSpeed');
-  console.info(typeSpeed);
-  if (typeof typeSpeed !== "number" || typeSpeed < 1) {
+  if (isNaN(typeSpeed) || typeSpeed < 1) {
     typeSpeed = 4; //Default type speed
   }
 
@@ -2605,7 +2598,7 @@ function submitLedBrightness(e) {
   e && e.preventDefault && e.preventDefault();
   var ledBrightness = parseInt(ui.ledBrightnessForm.okLedBrightness.value, 10);
 
-  if (typeof ledBrightness !== "number" || ledBrightness < 1) {
+  if (isNaN(ledBrightness) || ledBrightness < 1) {
     ledBrightness = 8; //Default led brightness
   }
 
@@ -2617,11 +2610,14 @@ function submitLockButton(e) {
   e && e.preventDefault && e.preventDefault();
   var lockButton = parseInt(ui.lockButtonForm.okLockButton.value, 10);
 
-  if (typeof lockButton !== "number" || lockButton < 0 || lockButton > 6) {
+  if (isNaN(lockButton) || lockButton < 0 || lockButton > 6) {
+    myOnlyKey.setLastMessage(
+      "received",
+      "Lock button must be a number between 0 and 6"
+    );
     return;
   }
 
-  lockButton = Math.min(lockButton, 10);
   return myOnlyKey.setLockButton(lockButton);
 }
 
@@ -2629,7 +2625,7 @@ function submitKBDLayout(e) {
   e && e.preventDefault && e.preventDefault();
   var kbdLayout = parseInt(ui.keyboardLayoutForm.okKeyboardLayout.value, 10);
 
-  if (typeof kbdLayout !== "number" || kbdLayout < 1) {
+  if (isNaN(kbdLayout) || kbdLayout < 1) {
     kbdLayout = 1;
   }
 
@@ -2705,7 +2701,7 @@ function base64tohex(base64) {
   var HEX = "";
   var _hex;
 
-  for (i = 0; i < raw.length; i++) {
+  for (var i = 0; i < raw.length; i++) {
     _hex = raw.charCodeAt(i).toString(16);
     HEX += _hex.length == 2 ? _hex : "0" + _hex;
   }

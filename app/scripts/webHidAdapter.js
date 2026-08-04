@@ -156,7 +156,6 @@ const webHidAdapter = {
             reportId: event.reportId,
             data: event.data
           });
-          console.log('WebHID inputreport event: reportId=' + event.reportId + ', dataLen=' + event.data.byteLength + ', queued=' + conn.inputReportQueue.length);
         });
 
         const result = { connectionId };
@@ -216,7 +215,6 @@ const webHidAdapter = {
       }
 
       // OnlyKey uses output reports for sending data
-      console.log('WebHID sendReport: connectionId=' + connectionId + ', reportId=' + reportId + ', dataLen=' + data.byteLength);
       await conn.device.sendReport(reportId, data);
       callback();
     } catch (error) {
@@ -251,7 +249,6 @@ const webHidAdapter = {
       // Check if we already have a queued report
       if (conn.inputReportQueue && conn.inputReportQueue.length > 0) {
         const report = conn.inputReportQueue.shift();
-        console.log('WebHID receive (from queue): connectionId=' + connectionId + ', reportId=' + report.reportId + ', dataLen=' + report.data.byteLength);
         callback(report.reportId, report.data.buffer);
         return;
       }
@@ -274,7 +271,6 @@ const webHidAdapter = {
       });
 
       if (result) {
-        console.log('WebHID receive: connectionId=' + connectionId + ', reportId=' + result.reportId + ', dataLen=' + result.data.byteLength);
         callback(result.reportId, result.data.buffer);
       } else {
         console.warn('WebHID receive: timeout waiting for input report');
