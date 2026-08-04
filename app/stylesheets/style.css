@@ -549,9 +549,47 @@ td.okduo-photo-cell {
 }
 
 .auth-form label {
-  line-height: 1.8;
+  line-height: 1.5;
   display: block;
-  margin-bottom: var(--spacing-xs);
+  margin-bottom: var(--spacing-sm);
+}
+
+/* field spacing comes from the label margins above — the literal <br>
+   separators between fields in the markup would double it */
+.auth-form > br {
+  display: none;
+}
+
+/* inline selects (Type:/Slot:) sit next to their label text instead of
+   stretching full-width onto their own line */
+.auth-form select {
+  width: auto;
+  min-width: 12em;
+}
+
+.auth-form input[type="button"] {
+  margin-top: var(--spacing-sm);
+}
+
+/* error containers are always in the markup but only get content when an
+   error occurs — don't render an empty colored bar */
+.form-error:empty {
+  display: none;
+}
+
+/* keep the Set Layout button on the same row as the dropdown, matching
+   the other label + control + button rows in Preferences */
+#keyboardLayoutForm {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--spacing-xs);
+}
+
+#keyboardLayoutForm select {
+  flex: 1 1 auto;
+  width: auto;
+  min-width: 0;
 }
 
 /* ============================================
