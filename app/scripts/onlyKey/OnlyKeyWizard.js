@@ -1409,9 +1409,11 @@ if (chrome.passwordsPrivate) {
       const slotLabels = Array.from(rootElement.getElementsByClassName('slotLabel'));
       slotLabel = slotLabels[slot];
     } else {
+      // Use querySelector instead of getElementById (which is only on document)
       slot = slot.toLowerCase();
-      slotLabel = rootElement.getElementById('slotLabel' + slot);
+      slotLabel = rootElement.querySelector('#slotLabel' + slot);
     }
+    console.log(`setSlotLabel: slot=${slot}, label=${label}, slotLabelId=${slotLabel ? slotLabel.id : 'null'}`);
 
     if (!slotLabel) return;
 

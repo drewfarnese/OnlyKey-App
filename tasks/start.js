@@ -1,6 +1,5 @@
 'use strict';
 
-var Q = require('q');
 var nw = require('nw');
 var pathUtil = require('path');
 var childProcess = require('child_process');
@@ -14,21 +13,19 @@ if (process.platform === 'win32') {
 }
 
 var runBuild = function () {
-    var deferred = Q.defer();
+    return new Promise(function (resolve) {
+        var build = childProcess.spawn(gulpPath, [
+            'build',
+            '--env=' + utils.getEnvName(),
+            '--color'
+        ], {
+            stdio: 'inherit'
+        });
 
-    var build = childProcess.spawn(gulpPath, [
-        'build',
-        '--env=' + utils.getEnvName(),
-        '--color'
-    ], {
-        stdio: 'inherit'
+        build.on('close', function (code) {
+            resolve();
+        });
     });
-
-    build.on('close', function (code) {
-        deferred.resolve();
-    });
-
-    return deferred.promise;
 };
 
 var runGulpWatch = function () {
@@ -47,8 +44,9 @@ var runGulpWatch = function () {
     });
 };
 
-var runApp = function () {
-    var app = childProcess.spawn(nw.findpath(), ['./build'], {
+var runApp = async function () {
+    var nwPath = await nw.findpath();
+    var app = childProcess.spawn(nwPath, ['./build'], {
         stdio: 'inherit'
     });
 

@@ -1,9 +1,39 @@
-const desktopApp = typeof nw !== "undefined";
-let userPreferences, request;
+// Detect if running as desktop app (NW.js or Electron)
+const isNwjs = typeof nw !== "undefined";
+const isElectron = typeof window !== "undefined" && window.electronAPI;
+const desktopApp = isNwjs || isElectron;
+let userPreferences;
 
-if (desktopApp) {
+if (isNwjs) {
   userPreferences = require("./scripts/userPreferences.js");
-  request = require("request");
+} else if (desktopApp) {
+  // For Electron, userPreferences will be handled differently
+  userPreferences = {
+    autoUpdateFW: localStorage.getItem('autoUpdateFW') !== 'false',
+    autoUpdate: localStorage.getItem('autoUpdate') !== 'false',
+    autoLaunch: localStorage.getItem('autoLaunch') !== 'false',
+  };
+}
+
+// Lazy-load OpenPGP library (large library, only needed for backup/restore and key operations)
+let openpgpLoaded = false;
+async function loadOpenPGP() {
+  if (openpgpLoaded || typeof openpgp !== 'undefined') {
+    openpgpLoaded = true;
+    return window.openpgp;
+  }
+
+  return new Promise((resolve, reject) => {
+    const script = document.createElement('script');
+    script.src = './vendor/openpgp.min.js';
+    script.onload = () => {
+      openpgpLoaded = true;
+      console.log('OpenPGP library loaded on demand');
+      resolve(window.openpgp);
+    };
+    script.onerror = () => reject(new Error('Failed to load OpenPGP library'));
+    document.head.appendChild(script);
+  });
 }
 
 let backupsigFlag = -1;
@@ -459,7 +489,12 @@ OnlyKey.prototype.setTime = async function (callback) {
     contents: timeParts,
     msgId: "OKSETTIME",
   };
-  this.sendMessage(options, this.sendMessage(options, callback));
+  const self = this;
+  // Send first OKSETTIME, then wait and send second one
+  this.sendMessage(options, async function() {
+    await wait(100);
+    self.sendMessage(options, callback);
+  });
 };
 
 OnlyKey.prototype.getLabels = async function () {
@@ -477,7 +512,7 @@ function handleGetLabels(err, msg) {
 
   if (myOnlyKey.labels === "") {
     myOnlyKey.labels = [];
-    return myOnlyKey.listen(handleGetLabels);
+    // Don't return early - continue to process this first message
   }
 
   // if second char of response is a pipe, theses are labels
@@ -507,7 +542,8 @@ function handleGetLabels(err, msg) {
         myOnlyKey.listen(handleGetLabels);
       }
     } else {
-      if (slotNum < 12 && (msg.indexOf("|") == 2 || msg.indexOf("|") == 3)) {
+      // Keep listening for more labels - device may send slots out of order
+      if (msg.indexOf("|") == 2 || msg.indexOf("|") == 3) {
         myOnlyKey.listen(handleGetLabels);
       }
     }
@@ -679,6 +715,8 @@ OnlyKey.prototype.setRSABackupKey = async function (key, passcode, cb) {
   let error;
 
   try {
+    // Lazy-load OpenPGP library
+    const openpgp = await loadOpenPGP();
     var privKeys = await openpgp.key.readArmored(key);
     privKey = privKeys.keys[0];
 
@@ -725,6 +763,8 @@ OnlyKey.prototype.setBackupPassphrase = async function (passphrase, cb) {
   // abcdefghijklmnopqrstuvwxyz
   let key, type, slot;
   try {
+    // Lazy-load OpenPGP library
+    const openpgp = await loadOpenPGP();
     key = await Array.from(openpgp.crypto.hash.digest(8, passphrase)); // 32 byte backup key is Sha256 hash of passphrase
     type = 161; //Backup and Decryption key
     slot = 131;
@@ -1024,8 +1064,10 @@ OnlyKey.prototype.setDeviceType = function (version = "") {
       } else if (version.includes("INITIALIZED")) {
         deviceType = DEVICE_TYPES.CLASSIC;
       } else {
-        window.location.reload();
-      }      
+        console.warn("Unrecognized version string, not reloading:", version);
+        // Don't reload - this causes infinite loops when communication fails
+        deviceType = DEVICE_TYPES.CLASSIC; // Default fallback
+      }
     }
   console.info(`Setting deviceType to ${deviceType}`);
   this.deviceType = deviceType;
@@ -1234,6 +1276,14 @@ var onDevicesEnumerated = async function (devices) {
 
   if (devices && devices.length) {
     console.info("HID devices found:", devices);
+    // Log detailed info about each device
+    devices.forEach((d, i) => {
+      console.info(`Device ${i}: vendorId=${d.vendorId}, productId=${d.productId}, serialNumber=${d.serialNumber}`);
+      console.info(`  Collections:`, d.collections);
+      d.collections.forEach((c, j) => {
+        console.info(`    Collection ${j}: usagePage=${c.usagePage}, usage=${c.usage}`);
+      });
+    });
     for (let i in devices) {
       await onDeviceAdded(devices[i]);
     }
@@ -1243,21 +1293,44 @@ var onDevicesEnumerated = async function (devices) {
 
 var onDeviceAdded = async function (device) {
   var supportedDevice = getSupportedDevice(device);
-  console.info(device.collections[0].usage);
+  console.info("onDeviceAdded: supportedDevice=", supportedDevice);
+  console.info("onDeviceAdded: serialNumber=", device.serialNumber);
+  console.info("onDeviceAdded: collections[0].usagePage=", device.collections[0].usagePage, "usage=", device.collections[0].usage);
+
+  // Check if ANY collection has usagePage 65451 (not just the first one)
+  const hasRawHidCollection = device.collections.some(c => c.usagePage == 65451 || c.usagePage == "65451");
+  console.info("onDeviceAdded: hasRawHidCollection=", hasRawHidCollection);
+
   if (
     supportedDevice &&
-    device.collections[0].usagePage == "65451" &&
+    hasRawHidCollection &&
     device.serialNumber == "1000000000"
   ) {
+    console.info("Connecting to Beta 8+ device with raw HID interface");
     await connectDevice(device);
   } else if (supportedDevice && device.serialNumber != "1000000000") {
     //Before Beta 8 fw
     console.info("Beta 8+ device not found, looking for old device");
     await connectDevice(device);
+  } else {
+    console.info("Device not selected for connection (keyboard interface or no raw HID collection)");
   }
 };
 
+var isConnecting = false;
+
 var connectDevice = async function (device) {
+  // Prevent duplicate connection attempts
+  if (isConnecting) {
+    console.info("Connection already in progress, skipping");
+    return;
+  }
+  if (myOnlyKey.connection && myOnlyKey.connection !== -1) {
+    console.info("Already connected with connectionId:", myOnlyKey.connection);
+    return;
+  }
+
+  isConnecting = true;
   const deviceId = device.deviceId;
 
   console.info("CONNECTING device:", device);
@@ -1268,12 +1341,27 @@ var connectDevice = async function (device) {
   chromeHid.connect(deviceId, async function (connectInfo) {
     if (chrome.runtime.lastError) {
       console.error("ERROR CONNECTING:", chrome.runtime.lastError);
-    } else if (!connectInfo) {
+      dialog.close(ui.workingDialog);
+      isConnecting = false;
+      return;
+    }
+
+    if (!connectInfo) {
       console.warn("Unable to connect to device.");
+      dialog.close(ui.workingDialog);
+      isConnecting = false;
+      return;
     }
 
     myOnlyKey.setConnection(connectInfo.connectionId);
-    await myOnlyKey.setTime(pollForInput);
+    isConnecting = false;
+    // Small delay to ensure device is ready after connection
+    await wait(200);
+    try {
+      await myOnlyKey.setTime(pollForInput);
+    } catch (err) {
+      console.warn("Error setting time:", err);
+    }
     enableIOControls(true);
   });
 };
@@ -1551,11 +1639,14 @@ function initSlotConfigForm() {
   const deviceType = myOnlyKey.getDeviceType();
   const deviceBtns = ui.slotConfigBtns.getElementsByClassName(`ok-${deviceType}`)[0];
   const configBtns = Array.from(deviceBtns.getElementsByTagName('input'));
+  console.log('initSlotConfigForm: deviceType=', deviceType, 'labels=', JSON.stringify(myOnlyKey.labels));
   configBtns.forEach((btn, i) => {
     const slotId = btn.dataset.slotId || btn.value; // prefer data-slot-id
     const labelIndex = myOnlyKey.getSlotNum(slotId);
     const labelText = myOnlyKey.labels[labelIndex - 1] || 'empty';
-    onlyKeyConfigWizard.setSlotLabel(i, labelText);
+    console.log(`  btn[${i}]: slotId=${slotId}, labelIndex=${labelIndex}, labelText=${labelText}`);
+    // Use slotId directly instead of index to ensure correct label element is updated
+    onlyKeyConfigWizard.setSlotLabel(slotId, labelText);
     btn.addEventListener('click', showSlotConfigForm);
   });
   ui.slotConfigDialog
@@ -1804,6 +1895,8 @@ async function submitRsaForm(e) {
       retKey;
 
     try {
+      // Lazy-load OpenPGP library
+      const openpgp = await loadOpenPGP();
       var privKeys = await openpgp.key.readArmored(key);
       privKey = privKeys.keys[0];
 
@@ -2178,154 +2271,152 @@ async function loadFirmware() {
  */
 const wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
-function checkForNewFW(checkForNewFW, fwUpdateSupport, version) {
+async function checkForNewFW(checkForNewFW, fwUpdateSupport, version) {
   if (!fwchecked) {
-    return new Promise((resolve, reject) => {
-      fwchecked = true;
-      if (checkForNewFW == true && fwUpdateSupport == true) {
-        //fw checking enabled and firmware version supports app updates
-        console.info("Checking for new firmware");
-        request.get(
-          "https://github.com/trustcrypto/OnlyKey-Firmware/releases/latest",
-          function (err, res, body) {
-            if (err) return reject(err);
+    fwchecked = true;
+    if (checkForNewFW == true && fwUpdateSupport == true) {
+      //fw checking enabled and firmware version supports app updates
+      console.info("Checking for new firmware");
+      try {
+        const res = await fetch(
+          "https://github.com/trustcrypto/OnlyKey-Firmware/releases/latest"
+        );
 
-            console.log(this.uri.href);
-            //var testupgradeurl = 'https://github.com/trustcrypto/OnlyKey-Firmware/releases/tag/v2.1.0-prod'
-            //var latestver = testupgradeurl.split("/tag/v"); //end of redirected URL is the version
-            var latestver = this.uri.href.split("/tag/v");
-            latestver = latestver[1];
-            console.info("Current verion", version);
-            console.info("Latest verion", latestver);
+        console.log(res.url);
+        //var testupgradeurl = 'https://github.com/trustcrypto/OnlyKey-Firmware/releases/tag/v2.1.0-prod'
+        //var latestver = testupgradeurl.split("/tag/v"); //end of redirected URL is the version
+        var latestver = res.url.split("/tag/v");
+        latestver = latestver[1];
+        console.info("Current verion", version);
+        console.info("Latest verion", latestver);
 
-            var thisver_maj = version.slice(1, 2) * 100;
-            console.info(thisver_maj);
-            var thisver_min = version.slice(3, 4) * 10;
-            console.info(thisver_min);
-            if (thisver_maj == 0) {
-              var thisver_pat = version.slice(10, 11);
-            } else {
-              var thisver_pat = version.slice(5, 6);
-            }
-            var thisver_mod = version.slice(11, 12);
-            console.info("Current verion mod", thisver_mod);
-            var latestversplit = latestver.split(".")
-            console.info(latestversplit);
-            var latestver_maj = latestversplit[0] * 100;
-            console.info("Latest verion maj", latestver_maj);
-            var latestver_min = latestversplit[1] * 10;
-            console.info("Latest verion min", latestver_min);
-            if (latestver_maj == 0) {
-              var latestver_pat = latestver.slice(10, 11);
-            } else {
-              var latestver_pat = latestversplit[2].split("-");
-            }
-            latestver_pat = latestver_pat[0];
-            console.info("Latest verion pat", latestver_pat);
+        var thisver_maj = version.slice(1, 2) * 100;
+        console.info(thisver_maj);
+        var thisver_min = version.slice(3, 4) * 10;
+        console.info(thisver_min);
+        if (thisver_maj == 0) {
+          var thisver_pat = version.slice(10, 11);
+        } else {
+          var thisver_pat = version.slice(5, 6);
+        }
+        var thisver_mod = version.slice(11, 12);
+        console.info("Current verion mod", thisver_mod);
+        var latestversplit = latestver.split(".");
+        console.info(latestversplit);
+        var latestver_maj = latestversplit[0] * 100;
+        console.info("Latest verion maj", latestver_maj);
+        var latestver_min = latestversplit[1] * 10;
+        console.info("Latest verion min", latestver_min);
+        if (latestver_maj == 0) {
+          var latestver_pat = latestver.slice(10, 11);
+        } else {
+          var latestver_pat = latestversplit[2].split("-");
+        }
+        latestver_pat = latestver_pat[0];
+        console.info("Latest verion pat", latestver_pat);
 
-            if (
-              thisver_maj + thisver_min + thisver_pat <
-              latestver_maj + latestver_min + latestver_pat
-            ) {
-              if (version[9] != "." || version[10] > 6) {
-                if (thisver_mod == "c" || thisver_mod == "g") {
-                  if (
-                    window.confirm(
-                      "A new version of firware is available. Would you like to review the upgrade guide?"
-                    )
-                  ) {
-                    const openMethod =
-                      typeof nw === "undefined"
-                        ? window.open
-                        : nw.Shell.openExternal;
-                    openMethod("https://docs.crp.to/upgradeguide.html");
+        if (
+          thisver_maj + thisver_min + thisver_pat <
+          latestver_maj + latestver_min + latestver_pat
+        ) {
+          if (version[9] != "." || version[10] > 6) {
+            if (thisver_mod == "c" || thisver_mod == "g") {
+              if (
+                window.confirm(
+                  "A new version of firware is available. Would you like to review the upgrade guide?"
+                )
+              ) {
+                // Open external URL - works for both NW.js, Electron, and browser
+                const url = "https://docs.crp.to/upgradeguide.html";
+                if (typeof nw !== "undefined") {
+                  nw.Shell.openExternal(url);
+                } else {
+                  window.open(url, '_blank');
+                }
+                if (
+                  window.confirm(
+                    "After reading the upgrade guide click OK to automatically download and install the latest standard edition OnlyKey firmware"
+                  )
+                ) {
+                  // Download latest standard firmware for color from URL
+                  // https://github.com/trustcrypto/OnlyKey-Firmware/releases/download/
+                  var downloadurl =
+                    "https://github.com/trustcrypto/OnlyKey-Firmware/releases/download/" +
+                    "v" +
+                    latestver +
+                    "/Signed_OnlyKey_";
+                  downloadurl =
+                    downloadurl +
+                    latestver_maj / 100 +
+                    "_" +
+                    latestver_min / 10 +
+                    "_" +
+                    latestver_pat +
+                    "_STD.txt";
+                  console.info(downloadurl);
+
+                  try {
+                    const fwResponse = await fetch(downloadurl);
+                    const fwBody = await fwResponse.text();
+
+                    console.info(myOnlyKey.getLastMessage("received"));
                     if (
+                      myOnlyKey
+                        .getLastMessage("received")
+                        .indexOf("UNINITIALIZEDv") >= 0 ||
                       window.confirm(
-                        "After reading the upgrade guide click OK to automatically download and install the latest standard edition OnlyKey firmware"
+                        "To load new firmware file to your OnlyKey put OnlyKey in config mode. For OnlyKey hold down button #6 on your OnlyKey for 5+ seconds and release. For OnlyKey DUO hold down button #1 on your OnlyKey for 10+ seconds and release. The light will turn off and if a PIN has been set re-enter your PIN to enter config mode. You will notice the OnlyKey flashes red in config mode. Click OK to load new firmware."
                       )
                     ) {
-                      // Download latest standard firmware for color from URL
-                      // https://github.com/trustcrypto/OnlyKey-Firmware/releases/download/
-                      var downloadurl =
-                        "https://github.com/trustcrypto/OnlyKey-Firmware/releases/download/" +
-                        "v" + latestver +
-                        "/Signed_OnlyKey_";
-                      downloadurl = downloadurl +
-                          latestver_maj / 100 +
-                          "_" +
-                          latestver_min / 10 +
-                          "_" +
-                          latestver_pat +
-                          "_STD.txt";
-                      console.info(downloadurl);
-                      var req = request.get(
-                        downloadurl,
-                        async function (err, res, body) {
-                          console.info(myOnlyKey.getLastMessage("received"));
-                          if (
-                            myOnlyKey
-                              .getLastMessage("received")
-                              .indexOf("UNINITIALIZEDv") >= 0 ||
-                            window.confirm(
-                              "To load new firmware file to your OnlyKey put OnlyKey in config mode. For OnlyKey hold down button #6 on your OnlyKey for 5+ seconds and release. For OnlyKey DUO hold down button #1 on your OnlyKey for 10+ seconds and release. The light will turn off and if a PIN has been set re-enter your PIN to enter config mode. You will notice the OnlyKey flashes red in config mode. Click OK to load new firmware."
-                            )
-                          ) {
-                            if (req.responseContent.body) {
-                              var contents =
-                                req.responseContent.body &&
-                                req.responseContent.body.trim();
-                              try {
-                                console.info("unparsed contents", contents);
-                                contents = parseFirmwareData(contents);
-                                console.info("parsed contents", contents);
-                              } catch (parseError) {
-                                throw new Error(
-                                  "Could not parse firmware file.\n\n" +
-                                    parseError
-                                );
-                              }
-                              console.info(contents);
-                              onlyKeyConfigWizard.newFirmware = contents;
-                              const temparray = "1234";
-                              await submitFirmwareData(
-                                temparray,
-                                function (err) {
-                                  //First send one message to kick OnlyKey (in config mode) into bootloader
-                                  console.info(
-                                    "Working... Do not remove OnlyKey"
-                                  );
-                                  console.info("Firmware file sent to OnlyKey");
-                                  myOnlyKey.listen(handleMessage); //OnlyKey will respond with "SUCCESSFULL FW LOAD REQUEST, REBOOTING..." or "ERROR NOT IN CONFIG MODE"
-                                }
-                              );
-                              resolve();
-                            } else {
-                              alert(`Firmware Download Failed`);
-                              resolve();
-                              return;
-                            }
-                          }
+                      if (fwBody) {
+                        var contents = fwBody.trim();
+                        try {
+                          console.info("unparsed contents", contents);
+                          contents = parseFirmwareData(contents);
+                          console.info("parsed contents", contents);
+                        } catch (parseError) {
+                          throw new Error(
+                            "Could not parse firmware file.\n\n" + parseError
+                          );
                         }
-                      );
+                        console.info(contents);
+                        onlyKeyConfigWizard.newFirmware = contents;
+                        const temparray = "1234";
+                        await submitFirmwareData(temparray, function (err) {
+                          //First send one message to kick OnlyKey (in config mode) into bootloader
+                          console.info("Working... Do not remove OnlyKey");
+                          console.info("Firmware file sent to OnlyKey");
+                          myOnlyKey.listen(handleMessage); //OnlyKey will respond with "SUCCESSFULL FW LOAD REQUEST, REBOOTING..." or "ERROR NOT IN CONFIG MODE"
+                        });
+                        return;
+                      } else {
+                        alert(`Firmware Download Failed`);
+                        return;
+                      }
                     }
+                  } catch (fwErr) {
+                    console.error("Firmware download error:", fwErr);
+                    alert(`Firmware Download Failed: ${fwErr.message}`);
                   }
                 }
               }
             }
           }
-        );
-      } else if (!fwUpdateSupport) {
-        if (
-          window.confirm(
-            "This application is designed to work with a newer version of OnlyKey firmware. Click OK to go to the firmware download page."
-          )
-        ) {
-          window.location.href =
-            "https://docs.crp.to/usersguide.html#loading-onlykey-firmware";
         }
+      } catch (err) {
+        console.error("Firmware check error:", err);
+        throw err;
       }
-      resolve();
-    });
+    } else if (!fwUpdateSupport) {
+      if (
+        window.confirm(
+          "This application is designed to work with a newer version of OnlyKey firmware. Click OK to go to the firmware download page."
+        )
+      ) {
+        window.location.href =
+          "https://docs.crp.to/usersguide.html#loading-onlykey-firmware";
+      }
+    }
   }
 }
 
