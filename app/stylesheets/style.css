@@ -86,6 +86,10 @@
 html {
   background: linear-gradient(135deg, var(--color-bg-dark) 0%, var(--color-bg-medium) 50%, var(--color-bg-light) 100%);
   min-height: 100%;
+  /* hidden tooltip bubbles are position:absolute with a fixed width and can
+     extend past the right edge — they must never produce a horizontal
+     scrollbar */
+  overflow-x: hidden;
 }
 
 body {
@@ -97,6 +101,10 @@ body {
   color: var(--color-text-primary);
   line-height: 1.5;
   min-height: 100%;
+  /* content must stay scrollable — panels are taller than the min window
+     size; hidden tooltips (position: absolute) must not widen the page */
+  overflow-x: hidden;
+  overflow-y: auto;
 }
 
 /* ============================================
@@ -289,6 +297,10 @@ dialog {
   background: linear-gradient(145deg, var(--color-bg-medium) 0%, var(--color-bg-dark) 100%);
   color: var(--color-text-inverse);
   max-width: 90%;
+  /* tall dialogs (e.g. slot config) must scroll rather than clip at the
+     800x400 minimum window size */
+  max-height: 90vh;
+  overflow-y: auto;
   padding: var(--spacing-xl);
   animation: dialogSlideIn 0.3s ease-out;
 }
@@ -425,6 +437,10 @@ dialog > nav + form > p {
   position: fixed;
   bottom: 0;
   left: 0;
+  /* never collide with #versions in the opposite corner, even at the
+     800px minimum window width */
+  max-width: 60vw;
+  overflow-wrap: break-word;
   padding: var(--spacing-sm) var(--spacing-md);
   background: rgba(15, 23, 42, 0.9);
   border-radius: 0 var(--radius-md) 0 0;
@@ -565,6 +581,7 @@ td.okduo-photo-cell {
 nav {
   margin-top: var(--spacing-lg);
   display: flex;
+  flex-wrap: wrap;
   gap: var(--spacing-xs);
   padding: var(--spacing-xs);
   background: rgba(0, 0, 0, 0.2);
@@ -603,7 +620,10 @@ nav > a.active {
 
 #main {
   padding: var(--spacing-sm) var(--spacing-md);
-  padding-bottom: 70px; /* Space for status bars */
+  /* the fixed status bars are up to ~90px tall (#lastMessage shows a
+     three-message history) — reserve enough space that scrolled-to-bottom
+     content clears them */
+  padding-bottom: 110px;
   max-width: 1200px;
   margin: 0 auto;
   width: 100%;
@@ -733,6 +753,7 @@ body.ok-duo .ok-duo {
 .tooltip:after {
   display: block;
   opacity: 0;
+  visibility: hidden;
   pointer-events: none;
   position: absolute;
   z-index: 9999;
@@ -776,6 +797,7 @@ body.ok-duo .ok-duo {
 .tooltip.fade:focus:after,
 .tooltip.fade:focus:before {
   opacity: 1;
+  visibility: visible;
   transform: translate3d(0, 0, 0);
 }
 
