@@ -12,6 +12,8 @@ The official OnlyKey app has not seen active development for some time, while th
 
 Bug reports and contributions are welcome via this repository's issue tracker and pull requests.
 
+![Slots panel showing the OnlyKey device diagram](docs/screenshots/slots.png)
+
 OnlyKey can be purchased here: [OnlyKey order](http://www.crp.to/p/)
 
 ## Getting Started
@@ -36,6 +38,19 @@ Just getting started with OnlyKey?
 *The app is required on all systems where OATH-TOTP (Google Authenticator) is used*
 
 For information on using the app see the [OnlyKey User's Guide](https://docs.crp.to/usersguide.html) or [OnlyKey DUO User's Guide](https://docs.crp.to/duousersguide.html)
+
+## Screenshots
+
+The UI has been significantly reworked compared to the official app:
+
+| | |
+|:---:|:---:|
+| ![Connect screen](docs/screenshots/connect.png) | ![Preferences panel](docs/screenshots/preferences.png) |
+| *Connect screen* | *Preferences* |
+| ![Keys panel](docs/screenshots/keys.png) | ![Backup and Restore panel](docs/screenshots/backup-restore.png) |
+| *Keys* | *Backup/Restore* |
+| ![Tools panel](docs/screenshots/tools.png) | |
+| *Tools* | |
 
 ## Installation
 
