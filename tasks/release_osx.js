@@ -8,57 +8,61 @@ let releasesDir;
 let tmpDir;
 let finalAppDir;
 let manifest;
-let node_modules_dir;
 
 const init = function (params={}) {
     projectDir = params.projectDir || jetpack;
     tmpDir = params.tmpDir || projectDir.dir('./tmp', { empty: true });
     releasesDir = params.releasesDir || projectDir.dir('./releases');
     manifest = params.manifest || projectDir.read('package.json', 'json');
-    node_modules_dir = params.node_modules_dir || 'node_modules';
 
     finalAppDir = tmpDir.cwd(manifest.productName + '.app');
     return Promise.resolve();
 };
 
 const copyRuntime = function () {
-    // When copying files, ignore `ljproj` files. Otherwise, the application
-    // name will show up as 'nwjs'. Thanks to
-    // https://github.com/nwjs-community/nw-builder/
-    console.log(`Copying runtime file nwjs.app from ${projectDir.path(node_modules_dir)}/nw/nwjs...`);
-
-    projectDir.copy(`${node_modules_dir}/nw/nwjs/nwjs.app/Contents`,
-        finalAppDir.path(),
-        { matching: [ 'Versions'] });
-
-    return projectDir.copyAsync(`${node_modules_dir}/nw/nwjs/nwjs.app`,
-        finalAppDir.path(),
-        {
-            overwrite: true,
-            matching: [ 'Contents/**/*', '!Contents/Resources/*.lproj/*' ]
+    // The Electron runtime is a devDependency, so it always lives in the
+    // regular node_modules (release_node_modules only holds the production
+    // deps that ship inside the app).
+    console.log('Copying Electron.app from node_modules/electron/dist...');
+    return projectDir.copyAsync('node_modules/electron/dist/Electron.app', finalAppDir.path(), { overwrite: true })
+        .then(function () {
+            // our app in Resources/app replaces Electron's default app
+            return finalAppDir.removeAsync('Contents/Resources/default_app.asar');
         });
 };
 
 const copyBuiltApp = function () {
-    console.log(`Copying /build contents into app.nw`);
-    return projectDir.copyAsync('build', finalAppDir.path('Contents/Resources/app.nw'));
+    console.log('Copying /build contents into Contents/Resources/app...');
+    return projectDir.copyAsync('build', finalAppDir.path('Contents/Resources/app'), { overwrite: true });
 };
 
 const prepareOsSpecificThings = function () {
-    // Info.plist
     console.log('Doing OSX-specific things...');
-    let info = projectDir.read('resources/osx/Info.plist');
-    info = replace(info, {
-        productName: manifest.productName,
-        version: manifest.version
+
+    // Patch Electron's own Info.plist in place — replacing it wholesale
+    // would drop keys the runtime needs.
+    const plistPath = finalAppDir.path('Contents/Info.plist');
+    let info = jetpack.read(plistPath);
+    const plistValues = {
+        CFBundleDisplayName: manifest.productName,
+        CFBundleExecutable: manifest.productName,
+        CFBundleName: manifest.productName,
+        CFBundleIdentifier: 'to.crp.' + manifest.name,
+        CFBundleShortVersionString: manifest.version,
+        CFBundleVersion: manifest.version,
+        CFBundleIconFile: 'icon.icns',
+    };
+    Object.keys(plistValues).forEach(function (key) {
+        const matcher = new RegExp('(<key>' + key + '</key>\\s*<string>)[^<]*(</string>)');
+        info = info.replace(matcher, '$1' + plistValues[key] + '$2');
     });
-    finalAppDir.write('Contents/Info.plist', info);
+    jetpack.write(plistPath, info);
 
     // Icon
-    projectDir.copy('resources/osx/icon.icns', finalAppDir.path('Contents/Resources/icon.icns'));
+    projectDir.copy('resources/osx/icon.icns', finalAppDir.path('Contents/Resources/icon.icns'), { overwrite: true });
 
-    // Rename executable, so it looks nice in the installer
-    jetpack.rename(finalAppDir.path('Contents/MacOS/nwjs'), manifest.productName);
+    // Rename executable to match CFBundleExecutable
+    jetpack.rename(finalAppDir.path('Contents/MacOS/Electron'), manifest.productName);
 
     return Promise.resolve();
 };

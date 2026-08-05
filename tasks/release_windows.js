@@ -9,25 +9,34 @@ var tmpDir;
 var releasesDir;
 var readyAppDir;
 var manifest;
-var node_modules_dir;
 
 var init = function (params={}) {
     projectDir = params.projectDir || jetpack;
     tmpDir = params.tmpDir || projectDir.dir('./tmp', { empty: true });
     releasesDir = params.releasesDir || projectDir.dir('./releases');
     manifest = params.manifest || projectDir.read('package.json', 'json');
-    node_modules_dir = params.node_modules_dir || 'node_modules';
 
     readyAppDir = tmpDir.cwd(manifest.name);
     return Promise.resolve();
 };
 
 var copyRuntime = function () {
-    return projectDir.copyAsync(`${node_modules_dir}/nw/nwjs`, readyAppDir.path(), { overwrite: true });
+    // The Electron runtime is a devDependency, so it always lives in the
+    // regular node_modules (release_node_modules only holds the production
+    // deps that ship inside the app).
+    return projectDir.copyAsync('node_modules/electron/dist', readyAppDir.path(), { overwrite: true })
+        .then(function () {
+            // our app in resources/app replaces Electron's default app
+            return readyAppDir.removeAsync('resources/default_app.asar');
+        });
 };
 
 var copyBuiltApp = function () {
-    return projectDir.copyAsync('build', readyAppDir.path(), { overwrite: true });
+    return projectDir.copyAsync('build', readyAppDir.path('resources/app'), { overwrite: true });
+};
+
+var renameExecutable = function () {
+    return jetpack.renameAsync(readyAppDir.path('electron.exe'), manifest.name + '.exe');
 };
 
 var prepareOsSpecificThings = function () {
@@ -42,6 +51,7 @@ var createInstaller = function () {
             name: manifest.name,
             productName: manifest.productName,
             version: manifest.version,
+            exec: manifest.name + '.exe',
             src: readyAppDir.path(),
             dest: releasesDir.path(finalPackageName),
             icon: readyAppDir.path('icon.ico'),
@@ -74,6 +84,7 @@ module.exports = function (params) {
     return init(params)
     .then(copyRuntime)
     .then(copyBuiltApp)
+    .then(renameExecutable)
     .then(prepareOsSpecificThings)
     .then(createInstaller)
     .then(cleanClutter);

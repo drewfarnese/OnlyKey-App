@@ -23,6 +23,9 @@ const paths = {
   ],
   filesToCopyFromRootDir: [
     "manifest.json",
+    "electron/**/*",
+    "resources/onlykey_logo_128.png",
+    "resources/windows/icon.ico",
     "!release_node_modules/**/*",
     "!releases/**/*",
   ],
@@ -49,8 +52,10 @@ var copyTask = function () {
 
   if (getEnvName() === "production") {
     console.log(`Copying node_modules from ${getNodeModulesDir()}...`);
+    // the Electron runtime is a devDependency shipped by the release
+    // tasks, never inside the app's node_modules
     rootDir.copy(`${getNodeModulesDir()}`, destDir.path("node_modules"), {
-      matching: ["!nw/**/*"],
+      matching: ["!nw/**/*", "!electron/**/*"],
       overwrite: true,
     });
   }

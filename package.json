@@ -23,12 +23,12 @@
   "packageManager": "pnpm@9.15.4",
   "dependencies": {
     "auto-launch": "^5.0.5",
-    "electron": "^35.1.5",
     "js-sha256": "^0.11.1",
     "sshpk": "^1.17.0"
   },
   "devDependencies": {
     "chai": "^6.2.2",
+    "electron": "^35.1.5",
     "chai-as-promised": "^8.0.2",
     "eslint": "^10.0.1",
     "fs-jetpack": "^5.1.0",
