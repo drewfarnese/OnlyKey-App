@@ -39,7 +39,13 @@ function createWindow() {
   });
 
   // Load the app HTML
-  mainWindow.loadFile(path.join(__dirname, '../app/app.html'));
+  mainWindow.loadFile(path.join(__dirname, '../app/app.html')).catch((err) => {
+    console.error('Failed to load app.html:', err);
+  });
+
+  mainWindow.webContents.on('did-fail-load', (event, errorCode, errorDescription, validatedURL) => {
+    console.error(`Renderer failed to load ${validatedURL}: ${errorDescription} (${errorCode})`);
+  });
 
   // Open DevTools only in development mode
   if (process.env.NODE_ENV === 'development' || process.argv.includes('--devtools')) {

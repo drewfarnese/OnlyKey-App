@@ -60,7 +60,9 @@ var copyTask = function () {
     });
   }
 
-  var result = jetpack.copyAsync(projectDir.path("app"), destDir.path(), {
+  // Mirror the repo layout (app/ subdirectory) so electron/main.js can
+  // resolve ../app/app.html the same way it does in development
+  var result = jetpack.copyAsync(projectDir.path("app"), destDir.path("app"), {
     overwrite: true,
     matching: paths.filesToCopyFromAppDir,
   });
@@ -81,7 +83,7 @@ var transpileTask = function () {
     .src(paths.jsCodeToTranspile, { base: "app" })
     .pipe(sourcemaps.init())
     .pipe(sourcemaps.write("."))
-    .pipe(gulp.dest(destDir.path()));
+    .pipe(gulp.dest(destDir.path("app")));
 };
 gulp.task("transpile", transpileTask);
 gulp.task("transpile-watch", transpileTask);
