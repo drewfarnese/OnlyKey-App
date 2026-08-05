@@ -1,8 +1,29 @@
 'use strict';
 
 var childProcess = require('child_process');
+var fs = require('fs');
+var pathUtil = require('path');
 var jetpack = require('fs-jetpack');
 var utils = require('./utils');
+
+// Find makensis on PATH, falling back to the default NSIS install
+// locations (installing NSIS does not add it to PATH by default).
+var locateMakensis = function () {
+    var onPath = childProcess.spawnSync(
+        process.platform === 'win32' ? 'where' : 'which', ['makensis']);
+    if (onPath.status === 0) {
+        return 'makensis';
+    }
+
+    var candidates = [
+        process.env['ProgramFiles(x86)'] && pathUtil.join(process.env['ProgramFiles(x86)'], 'NSIS', 'makensis.exe'),
+        process.env.ProgramFiles && pathUtil.join(process.env.ProgramFiles, 'NSIS', 'makensis.exe'),
+    ].filter(Boolean);
+
+    return candidates.find(function (candidate) {
+        return fs.existsSync(candidate);
+    }) || null;
+};
 
 var projectDir;
 var tmpDir;
@@ -44,7 +65,15 @@ var prepareOsSpecificThings = function () {
 };
 
 var createInstaller = function () {
-    return new Promise(function (resolve) {
+    return new Promise(function (resolve, reject) {
+        var makensis = locateMakensis();
+        if (!makensis) {
+            reject(new Error(
+                'makensis not found. Install NSIS (https://nsis.sourceforge.io/ ' +
+                'or `winget install NSIS.NSIS`) and re-run, or add makensis to your PATH.'));
+            return;
+        }
+
         var finalPackageName = manifest.name + '_' + manifest.version + '.exe';
         var installScript = projectDir.read('resources/windows/installer.nsi');
         installScript = utils.replace(installScript, {
@@ -65,11 +94,15 @@ var createInstaller = function () {
         // Remove destination file if already exists.
         releasesDir.remove(finalPackageName);
 
-        // Note: NSIS have to be added to PATH (environment variables).
-        var nsis = childProcess.spawn('makensis', [tmpDir.path('installer.nsi')]);
+        var nsis = childProcess.spawn(makensis, [tmpDir.path('installer.nsi')]);
         nsis.stdout.pipe(process.stdout);
         nsis.stderr.pipe(process.stderr);
-        nsis.on('close', function () {
+        nsis.on('error', reject);
+        nsis.on('close', function (code) {
+            if (code !== 0) {
+                reject(new Error('makensis exited with code ' + code));
+                return;
+            }
             console.log('Installer ready!', releasesDir.path(finalPackageName));
             resolve();
         });
