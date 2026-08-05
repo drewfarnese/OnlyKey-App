@@ -1,8 +1,8 @@
 {
   "name": "onlykey-app",
   "productName": "OnlyKey App",
-  "version": "5.5.0",
-  "version_name": "5.5.0",
+  "version": "6.0.0",
+  "version_name": "6.0.0",
   "description": "Setup and configure OnlyKey",
   "main": "electron/main.js",
   "scripts": {
@@ -10,8 +10,8 @@
     "start:dev": "NODE_ENV=development electron .",
     "build": "gulp build",
     "build_win": "gulp build",
-    "prerelease": "rm -rf ./node_modules/* && pnpm install --prod && rm -rf ./release_node_modules && mkdir release_node_modules && cd release_node_modules && mkdir node_modules && cd .. && cp -R ./node_modules/* ./release_node_modules/node_modules && pnpm install && pnpm run build --env=production",
-    "prerelease_win": "rm -rf ./node_modules/* && pnpm install --prod && rm -rf ./release_node_modules && mkdir release_node_modules && cd release_node_modules && mkdir node_modules && cd .. && cp -R ./node_modules/* ./release_node_modules/node_modules && pnpm install && pnpm run build_win --env=production",
+    "prerelease": "rm -rf ./node_modules ./release_node_modules && pnpm install --prod --config.node-linker=hoisted && mkdir release_node_modules && cp -R ./node_modules ./release_node_modules/node_modules && rm -rf ./node_modules && pnpm install && pnpm run build --env=production",
+    "prerelease_win": "rm -rf ./node_modules ./release_node_modules && pnpm install --prod --config.node-linker=hoisted && mkdir release_node_modules && cp -R ./node_modules ./release_node_modules/node_modules && rm -rf ./node_modules && pnpm install && pnpm run build_win --env=production",
     "release": "gulp release --env=production",
     "release_win": "gulp release --env=production",
     "pretest": "pnpm run build",
@@ -23,12 +23,12 @@
   "packageManager": "pnpm@9.15.4",
   "dependencies": {
     "auto-launch": "^5.0.5",
-    "electron": "^35.1.5",
     "js-sha256": "^0.11.1",
     "sshpk": "^1.17.0"
   },
   "devDependencies": {
     "chai": "^6.2.2",
+    "electron": "^35.1.5",
     "chai-as-promised": "^8.0.2",
     "eslint": "^10.0.1",
     "fs-jetpack": "^5.1.0",

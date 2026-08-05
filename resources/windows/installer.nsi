@@ -17,7 +17,7 @@
 !define setupIcon "{{setupIcon}}"
 !define banner "{{banner}}"
 
-!define exec "nw.exe"
+!define exec "{{exec}}"
 
 !define regkey "Software\${name}"
 !define uninstkey "Software\Microsoft\Windows\CurrentVersion\Uninstall\${name}"

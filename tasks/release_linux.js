@@ -11,14 +11,12 @@ var packDir;
 var tmpDir;
 var readyAppDir;
 var manifest;
-var node_modules_dir;
 
 var init = function (params={}) {
     projectDir = params.projectDir || jetpack;
     tmpDir = params.tmpDir || projectDir.dir('./tmp', { empty: true });
     releasesDir = params.releasesDir || projectDir.dir('./releases');
     manifest = params.manifest || projectDir.read('package.json', 'json');
-    node_modules_dir = params.node_modules_dir || 'node_modules';
 
     packName = manifest.name + '_' + manifest.version;
     packDir = tmpDir.dir(packName);
@@ -27,16 +25,28 @@ var init = function (params={}) {
 };
 
 var copyRuntime = function () {
-    // this pulls all files and directories from node_modules/nw/nwjs
-    // and copies them into /opt/OnlyKey
-    return projectDir.copyAsync(`${node_modules_dir}/nw/nwjs`, readyAppDir.path(), { overwrite: true });
+    // The Electron runtime is a devDependency, so it always lives in the
+    // regular node_modules (release_node_modules only holds the production
+    // deps that ship inside the app). Copies into /opt/<name>.
+    return projectDir.copyAsync('node_modules/electron/dist', readyAppDir.path(), { overwrite: true })
+        .then(function () {
+            // our app in resources/app replaces Electron's default app
+            return readyAppDir.removeAsync('resources/default_app.asar');
+        });
 };
 
 var copyBuiltApp = function () {
-    return projectDir.copyAsync('build', readyAppDir.path(), { overwrite: true });
+    return projectDir.copyAsync('build', readyAppDir.path('resources/app'), { overwrite: true });
+};
+
+var renameExecutable = function () {
+    return jetpack.renameAsync(readyAppDir.path('electron'), manifest.name);
 };
 
 var prepareOsSpecificThings = function () {
+    // Icon referenced by the .desktop file
+    projectDir.copy('resources/onlykey_logo_128.png', readyAppDir.path('icon.png'), { overwrite: true });
+
     // Create .desktop file from the template
     var desktop = projectDir.read('resources/linux/app.desktop');
     desktop = utils.replace(desktop, {
@@ -52,6 +62,7 @@ var prepareOsSpecificThings = function () {
     packDir.write('etc/udev/rules.d/49-onlykey.rules' , udevRules);
 
     var postinst = projectDir.read('resources/linux/postinst');
+    postinst = utils.replace(postinst, { name: manifest.name });
     // mode >=0755 и <=0775
     packDir.write('DEBIAN/postinst' , postinst, {mode: '755'});
 
@@ -60,12 +71,12 @@ var prepareOsSpecificThings = function () {
 
 var updateRuntimeFileMode = function () {
     return new Promise(function (resolve) {
-        console.log('chmodding nwjs runtime...');
+        console.log('chmodding electron runtime...');
 
         childProcess.exec('chmod -R 755 ' + readyAppDir.path(),
             function (error, stdout, stderr) {
                 if (error || stderr) {
-                    console.log("ERROR while chmodding nwjs runtime:");
+                    console.log("ERROR while chmodding electron runtime:");
                     console.log(error);
                     console.log(stderr);
                 }
@@ -95,8 +106,9 @@ var packToDebFile = function () {
         });
         packDir.write('DEBIAN/control', control);
 
-        // Build the package...
-        childProcess.exec('fakeroot dpkg-deb -Zxz --build ' + packDir.path() + ' ' + debPath,
+        // Build the package (--root-owner-group makes the contents
+        // root-owned without needing fakeroot)...
+        childProcess.exec('dpkg-deb --root-owner-group -Zxz --build ' + packDir.path() + ' ' + debPath,
             function (error, stdout, stderr) {
                 if (error || stderr) {
                     console.log("ERROR while building DEB package:");
@@ -119,6 +131,7 @@ module.exports = function (params) {
     .then(copyRuntime)
     .then(updateRuntimeFileMode)
     .then(copyBuiltApp)
+    .then(renameExecutable)
     .then(prepareOsSpecificThings)
     .then(packToDebFile)
     .then(cleanClutter);
