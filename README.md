@@ -1,6 +1,18 @@
-# OnlyKey App
+# OnlyKey App (Community Fork)
 
-This is the official app for **OnlyKey**
+> **Note:** This is **not** the official OnlyKey app. It is a community-maintained fork of the official [trustcrypto/OnlyKey-App](https://github.com/trustcrypto/OnlyKey-App) repository, created because development of the official app appears to have stalled. This fork aims to deliver much-needed improvements and keep the app usable on modern systems. It is not affiliated with or endorsed by CryptoTrust LLC.
+
+## Why this fork?
+
+The official OnlyKey app has not seen active development for some time, while the platform it was built on (NW.js) and its dependencies have aged. This fork picks up where the official app left off, with changes such as:
+
+- Migration from NW.js to [Electron](https://www.electronjs.org/), with device access through WebHID
+- An overhauled UI layout
+- Rebuilt packaging and release tooling, with modernized dependencies
+
+Bug reports and contributions are welcome via this repository's issue tracker and pull requests.
+
+![Slots panel showing the OnlyKey device diagram](docs/screenshots/slots.png)
 
 OnlyKey can be purchased here: [OnlyKey order](http://www.crp.to/p/)
 
@@ -27,18 +39,33 @@ Just getting started with OnlyKey?
 
 For information on using the app see the [OnlyKey User's Guide](https://docs.crp.to/usersguide.html) or [OnlyKey DUO User's Guide](https://docs.crp.to/duousersguide.html)
 
+## Screenshots
+
+The UI has been significantly reworked compared to the official app:
+
+| | |
+|:---:|:---:|
+| ![Connect screen](docs/screenshots/connect.png) | ![Preferences panel](docs/screenshots/preferences.png) |
+| *Connect screen* | *Preferences* |
+| ![Keys panel](docs/screenshots/keys.png) | ![Backup and Restore panel](docs/screenshots/backup-restore.png) |
+| *Keys* | *Backup/Restore* |
+| ![Tools panel](docs/screenshots/tools.png) | |
+| *Tools* | |
+
 ## Installation
 
-- Obtain an installer for your OS from the [releases page](https://github.com/trustcrypto/OnlyKey-App/releases/latest).
+- Obtain an installer for your OS from this fork's [releases page](https://github.com/drewfarnese/OnlyKey-App/releases/latest).
 - Install and launch the app.
+
+Installers for the official (unmaintained) app remain available on the [official releases page](https://github.com/trustcrypto/OnlyKey-App/releases/latest).
 
 Linux users installing the deb package should verify the GPG signature using `debsig-verify`. There is an article outlining this process [here](https://www.unboundsecurity.com/docs/UKC/UKC_Code_Signing_IG/HTML/Content/Products/UKC-EKM/UKC_Code_Signing_IG/LinuxPackage/SignDebian.html#h3_4).
 
 ## Support ##
 
-Check out the [OnlyKey Support Forum](https://groups.google.com/forum/#!forum/onlykey)
+For issues specific to this fork, please open an issue on [this repository's issue tracker](https://github.com/drewfarnese/OnlyKey-App/issues).
 
-Check out the [OnlyKey Documentation](https://docs.crp.to)
+For general OnlyKey questions, check out the [OnlyKey Support Forum](https://groups.google.com/forum/#!forum/onlykey) and the [OnlyKey Documentation](https://docs.crp.to). Note that the official support channels do not provide support for this fork.
 
 ## Developer Notes
 
@@ -90,4 +117,5 @@ For more information on export restrictions see: http://www.apache.org/licenses/
 
 ## Source
 
-[OnlyKey App on Github](https://github.com/trustcrypto/OnlyKey-App)
+- This fork: [drewfarnese/OnlyKey-App](https://github.com/drewfarnese/OnlyKey-App)
+- Official upstream repository: [trustcrypto/OnlyKey-App](https://github.com/trustcrypto/OnlyKey-App)
