@@ -1,7 +1,9 @@
 'use strict';
 
-const { app, BrowserWindow, ipcMain, session, shell } = require('electron');
+const { app, BrowserWindow, Menu, Tray, ipcMain, session, shell } = require('electron');
 const path = require('path');
+const settings = require('./settings');
+const startup = require('./startup');
 
 // Disable HID blocklist to allow OnlyKey devices
 // This must be done before app is ready
@@ -9,6 +11,15 @@ app.commandLine.appendSwitch('disable-hid-blocklist');
 
 // Keep a global reference of the window object to prevent garbage collection
 let mainWindow = null;
+let tray = null;
+let isQuitting = false;
+
+// Only allow one running instance; launching a second (e.g. manually, after
+// the app auto-started at login) surfaces the existing window instead.
+const gotSingleInstanceLock = app.requestSingleInstanceLock();
+if (!gotSingleInstanceLock) {
+  app.quit();
+}
 
 // OnlyKey device filters for WebHID
 const ONLYKEY_DEVICE_FILTERS = [
@@ -23,7 +34,12 @@ function createWindow() {
     ? path.join(__dirname, '../resources/windows/icon.ico')
     : path.join(__dirname, '../resources/onlykey_logo_128.png');
 
+  // Start hidden in the tray when the user enabled that option, or when
+  // launched with --hidden (e.g. by an OS login item)
+  const startMinimized = settings.get('startMinimized') || process.argv.includes('--hidden');
+
   mainWindow = new BrowserWindow({
+    show: !startMinimized,
     width: 1024,
     height: 768,
     minWidth: 800,
@@ -78,8 +94,87 @@ function createWindow() {
     // The select-hid-device handler will prompt the user to select a device
   });
 
+  // While the tray option is enabled the app keeps running in the tray when
+  // the window is closed; quitting is done from the tray menu
+  mainWindow.on('close', (event) => {
+    if (!isQuitting && settings.get('startMinimized')) {
+      event.preventDefault();
+      mainWindow.hide();
+    }
+  });
+
   mainWindow.on('closed', () => {
     mainWindow = null;
+  });
+}
+
+function showMainWindow() {
+  if (!mainWindow) {
+    createWindow();
+  }
+  if (mainWindow.isMinimized()) {
+    mainWindow.restore();
+  }
+  mainWindow.show();
+  mainWindow.focus();
+}
+
+async function createTray() {
+  tray = new Tray(path.join(__dirname, '../app/images/ok-tray-logo.png'));
+  tray.setToolTip('OnlyKey App');
+
+  // Reflect the real OS state in the menu (and stored setting) in case the
+  // login item was added/removed outside the app
+  try {
+    settings.set('launchAtStartup', await startup.isEnabled());
+  } catch (err) {
+    console.error('Failed to read launch-at-startup state:', err);
+  }
+
+  const buildMenu = () => Menu.buildFromTemplate([
+    {
+      label: 'Show OnlyKey App',
+      click: showMainWindow,
+    },
+    { type: 'separator' },
+    {
+      label: 'Launch at system startup',
+      type: 'checkbox',
+      checked: settings.get('launchAtStartup'),
+      click: (menuItem) => {
+        settings.set('launchAtStartup', menuItem.checked);
+        startup.setEnabled(menuItem.checked).catch((err) => {
+          console.error('Failed to update launch-at-startup:', err);
+          // Revert the stored setting and checkbox if the OS change failed
+          settings.set('launchAtStartup', !menuItem.checked);
+          tray.setContextMenu(buildMenu());
+        });
+      },
+    },
+    {
+      // Starts the app hidden and keeps it in the tray when the window closes
+      label: 'Run minimized in the tray',
+      type: 'checkbox',
+      checked: settings.get('startMinimized'),
+      click: (menuItem) => {
+        settings.set('startMinimized', menuItem.checked);
+      },
+    },
+    { type: 'separator' },
+    {
+      label: 'Quit',
+      click: () => app.quit(),
+    },
+  ]);
+
+  tray.setContextMenu(buildMenu());
+
+  // On Windows/Linux a plain click on the tray icon brings up the window;
+  // on macOS clicking the tray icon opens the context menu instead
+  tray.on('click', () => {
+    if (process.platform !== 'darwin') {
+      showMainWindow();
+    }
   });
 }
 
@@ -181,13 +276,22 @@ function setupHIDHandlers() {
 app.whenReady().then(() => {
   setupHIDHandlers();
   createWindow();
+  createTray().catch((err) => {
+    console.error('Failed to create tray:', err);
+  });
 
   app.on('activate', () => {
-    // On macOS, re-create window when dock icon is clicked
-    if (BrowserWindow.getAllWindows().length === 0) {
-      createWindow();
-    }
+    // On macOS, show (or re-create) the window when the dock icon is clicked
+    showMainWindow();
   });
+});
+
+app.on('second-instance', () => {
+  showMainWindow();
+});
+
+app.on('before-quit', () => {
+  isQuitting = true;
 });
 
 app.on('window-all-closed', () => {
