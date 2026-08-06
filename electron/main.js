@@ -1,6 +1,6 @@
 'use strict';
 
-const { app, BrowserWindow, ipcMain, session } = require('electron');
+const { app, BrowserWindow, ipcMain, session, shell } = require('electron');
 const path = require('path');
 
 // Disable HID blocklist to allow OnlyKey devices
@@ -38,6 +38,25 @@ function createWindow() {
     },
   });
 
+  // Open external links (WebCrypt apps, docs) in the system browser instead of
+  // spawning Electron child windows. OnlyKey WebCrypt must run in the user's
+  // default browser to use its own WebHID permissions.
+  mainWindow.webContents.setWindowOpenHandler(({ url }) => {
+    if (isExternalUrl(url)) {
+      shell.openExternal(url);
+    }
+    return { action: 'deny' };
+  });
+
+  // Prevent in-place navigation away from the app (e.g. clicking a link that
+  // isn't intercepted in the renderer) — open it externally instead.
+  mainWindow.webContents.on('will-navigate', (event, url) => {
+    if (isExternalUrl(url)) {
+      event.preventDefault();
+      shell.openExternal(url);
+    }
+  });
+
   // Load the app HTML
   mainWindow.loadFile(path.join(__dirname, '../app/app.html')).catch((err) => {
     console.error('Failed to load app.html:', err);
@@ -62,6 +81,16 @@ function createWindow() {
   mainWindow.on('closed', () => {
     mainWindow = null;
   });
+}
+
+// Only http(s) URLs may leave the app for the system browser
+function isExternalUrl(url) {
+  try {
+    const protocol = new URL(url).protocol;
+    return protocol === 'https:' || protocol === 'http:';
+  } catch (e) {
+    return false;
+  }
 }
 
 // Store granted device permissions to persist across sessions
@@ -179,5 +208,12 @@ ipcMain.handle('get-app-path', () => {
 
 ipcMain.handle('get-platform', () => {
   return process.platform;
+});
+
+ipcMain.handle('open-external', (event, url) => {
+  if (isExternalUrl(url)) {
+    return shell.openExternal(url);
+  }
+  console.warn('Blocked open-external for non-http(s) URL:', url);
 });
 

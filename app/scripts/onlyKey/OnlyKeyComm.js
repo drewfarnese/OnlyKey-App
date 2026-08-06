@@ -717,7 +717,13 @@ OnlyKey.prototype.setRSABackupKey = async function (key, passcode, cb) {
     var privKeys = await openpgp.key.readArmored(key);
     privKey = privKeys.keys[0];
 
-    var success = privKey.decrypt(passcode);
+    // decrypt() is async in OpenPGP.js v3 and rejects on a wrong passphrase
+    var success;
+    try {
+      success = await privKey.decrypt(passcode);
+    } catch (decryptError) {
+      success = false;
+    }
 
     if (!success) {
       error = "Private Key decryption failed.";
@@ -745,8 +751,10 @@ OnlyKey.prototype.setRSABackupKey = async function (key, passcode, cb) {
       throw Error(error);
     }
   } catch (parseError) {
-    error = "Error parsing RSA key.";
-    this.setLastMessage("received", error);
+    if (!error) {
+      error = "Error parsing RSA key.";
+      this.setLastMessage("received", error);
+    }
     throw Error(error + "\n\n" + parseError);
   }
 
@@ -2328,11 +2336,7 @@ async function checkForNewFW(checkForNewFW, fwUpdateSupport, version) {
               ) {
                 // Open external URL - works for both NW.js, Electron, and browser
                 const url = "https://docs.crp.to/upgradeguide.html";
-                if (typeof nw !== "undefined") {
-                  nw.Shell.openExternal(url);
-                } else {
-                  window.open(url, '_blank');
-                }
+                openExternalUrl(url);
                 if (
                   window.confirm(
                     "After reading the upgrade guide click OK to automatically download and install the latest standard edition OnlyKey firmware"

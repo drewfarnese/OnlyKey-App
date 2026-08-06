@@ -732,17 +732,19 @@ if (chrome.passwordsPrivate) {
       this.onlyKey.tempRsaKeys = keys;
     } else if (rawKey.primaryKey.params[0].oid) { //ECC
       var curve;
-      var oid_ed25519 = Uint8Array.from([43, 6, 1, 4, 1, 218, 71, 15, 1]);
-      var oid_nist256p1 = Uint8Array.from([42, 134, 72, 206, 61, 3, 1, 7]);
+      var oid_ed25519 = [43, 6, 1, 4, 1, 218, 71, 15, 1].join(',');
+      var oid_cv25519 = [43, 6, 1, 4, 1, 151, 85, 1, 5, 1].join(',');
+      var oid_nist256p1 = [42, 134, 72, 206, 61, 3, 1, 7].join(',');
 
       console.info(rawKey.primaryKey.params[0].oid);
 
       try {
-        if (oid_ed25519.sort().join(',') === rawKey.primaryKey.params[0].oid.sort().join(',')) { //ed25519
+        var keyOid = Array.from(rawKey.primaryKey.params[0].oid).join(',');
+        if (keyOid === oid_ed25519) { //ed25519
           this.onlyKey.tempEccCurve = 1;
-        } else if (oid_ed25519.sort().join(',') === rawKey.primaryKey.params[0].oid.sort().join(',')) { //curve25519
+        } else if (keyOid === oid_cv25519) { //curve25519
           this.onlyKey.tempEccCurve = 1;
-        } else if (oid_nist256p1.sort().join(',') === rawKey.primaryKey.params[0].oid.sort().join(',')) { //nist256p1
+        } else if (keyOid === oid_nist256p1) { //nist256p1
           this.onlyKey.tempEccCurve = 2;
         } else {
           this.onlyKey.tempEccCurve = 0;

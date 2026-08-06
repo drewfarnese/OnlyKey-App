@@ -1,14 +1,33 @@
-const openMethod = typeof nw === 'undefined' ? window.open : nw.Shell.openExternal;
+// Open a URL in the user's default browser. WebCrypt and docs links must not
+// open inside the app window (Electron would spawn a bare child window with no
+// browser chrome; NW.js used nw.Shell for the same reason).
+function openExternalUrl(url) {
+    if (window.electronAPI && window.electronAPI.openExternal) {
+        window.electronAPI.openExternal(url);
+    } else if (typeof nw !== 'undefined') {
+        nw.Shell.openExternal(url);
+    } else {
+        window.open(url, '_blank');
+    }
+}
 
-// Formerly checked for 'external' in classList. Now fires for all https:// links.
-document.querySelector('#main').addEventListener('click', evt => {
-    let href = evt.target && evt.target.href;
-    if (!href) href = evt.target && evt.target.offsetParent && evt.target.offsetParent.href;
-    if (!href) href = evt.path && evt.path[1] && evt.path[1].href;
+// Delegated handler for the whole document (dialogs live outside #main).
+// Covers both https:// anchors and CSP-safe [data-external-url] buttons,
+// which replace the inline onclick handlers blocked by script-src 'self'.
+document.addEventListener('click', evt => {
+    if (!evt.target || typeof evt.target.closest !== 'function') return;
 
-    if (!!href && href.indexOf('https://') == 0) {
-        openMethod(href);
-        evt.preventDefault && evt.preventDefault();
-        evt.stopPropgation && evt.stopPropagation();
+    const btn = evt.target.closest('[data-external-url]');
+    if (btn) {
+        evt.preventDefault();
+        openExternalUrl(btn.getAttribute('data-external-url'));
+        return;
+    }
+
+    const link = evt.target.closest('a[href]');
+    if (link && link.href.indexOf('https://') === 0) {
+        evt.preventDefault();
+        evt.stopPropagation();
+        openExternalUrl(link.href);
     }
 });
