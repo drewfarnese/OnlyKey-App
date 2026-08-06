@@ -1272,16 +1272,16 @@
         /></a>
         </h2>
         <div class="webcrypt-buttons">
-          <button type="button" class="tool-btn tooltip fade" data-tooltip="Securely encrypt messages in the browser using OnlyKey." onclick="window.open('https://apps.crp.to/app/encrypt', '_blank')">
+          <button type="button" class="tool-btn tooltip fade" data-tooltip="Securely encrypt messages in the browser using OnlyKey." data-external-url="https://apps.crp.to/app/encrypt">
             <img class="moveimage" src="./images/solid/lock.svg" width="16px" /> Encrypt Messages
           </button>
-          <button type="button" class="tool-btn tooltip fade" data-tooltip="Securely decrypt OpenPGP encrypted messages in the browser using OnlyKey" onclick="window.open('https://apps.crp.to/app/decrypt', '_blank')">
+          <button type="button" class="tool-btn tooltip fade" data-tooltip="Securely decrypt OpenPGP encrypted messages in the browser using OnlyKey" data-external-url="https://apps.crp.to/app/decrypt">
             <img class="moveimage" src="./images/solid/unlock.svg" width="16px" /> Decrypt Messages
           </button>
-          <button type="button" class="tool-btn tooltip fade" data-tooltip="Securely encrypt files in the browser using OnlyKey." onclick="window.open('https://apps.crp.to/app/encrypt-file', '_blank')">
+          <button type="button" class="tool-btn tooltip fade" data-tooltip="Securely encrypt files in the browser using OnlyKey." data-external-url="https://apps.crp.to/app/encrypt-file">
             <img class="moveimage" src="./images/solid/file-archive.svg" width="16px" /> Encrypt Files
           </button>
-          <button type="button" class="tool-btn tooltip fade" data-tooltip="Securely decrypt OpenPGP encrypted files in the browser using OnlyKey." onclick="window.open('https://apps.crp.to/app/decrypt-file', '_blank')">
+          <button type="button" class="tool-btn tooltip fade" data-tooltip="Securely decrypt OpenPGP encrypted files in the browser using OnlyKey." data-external-url="https://apps.crp.to/app/decrypt-file">
             <img class="moveimage" src="./images/solid/file-alt.svg" width="16px" /> Decrypt Files
           </button>
         </div>
@@ -1295,13 +1295,13 @@
         /></a>
         </h2>
         <div class="agent-buttons">
-          <button type="button" class="tool-btn tooltip fade" data-tooltip="Provides a way to securely use OnlyKey for OpenPGP on a local computer. Instead of keeping keys on a computer, OnlyKey generates and securely stores keys off of the computer and you can still easily use GPG to do things like sign emails, git commits, software packages etc." onclick="window.open('https://docs.crp.to/onlykey-agent.html#gpg-agent-quickstart-guide', '_blank')">
+          <button type="button" class="tool-btn tooltip fade" data-tooltip="Provides a way to securely use OnlyKey for OpenPGP on a local computer. Instead of keeping keys on a computer, OnlyKey generates and securely stores keys off of the computer and you can still easily use GPG to do things like sign emails, git commits, software packages etc." data-external-url="https://docs.crp.to/onlykey-agent.html#gpg-agent-quickstart-guide">
             <img class="moveimage" src="./images/solid/envelope.svg" width="16px" />
             <img class="moveimage" src="./images/solid/file-code.svg" width="16px" />
             <img class="moveimage" src="./images/solid/code-branch.svg" width="16px" />
             OnlyKey GPG Agent
           </button>
-          <button type="button" class="tool-btn tooltip fade" data-tooltip="Provides a way to securely use OnlyKey for SSH authentication on a local computer. Instead of keeping keys on a computer, OnlyKey generates and securely stores your keys off of the computer and you can still easily use SSH." onclick="window.open('https://docs.crp.to/onlykey-agent.html#ssh-agent-quickstart-guide', '_blank')">
+          <button type="button" class="tool-btn tooltip fade" data-tooltip="Provides a way to securely use OnlyKey for SSH authentication on a local computer. Instead of keeping keys on a computer, OnlyKey generates and securely stores your keys off of the computer and you can still easily use SSH." data-external-url="https://docs.crp.to/onlykey-agent.html#ssh-agent-quickstart-guide">
             <img class="moveimage" src="./images/solid/terminal.svg" width="16px" /> OnlyKey SSH Agent
           </button>
         </div>
@@ -1334,7 +1334,7 @@
     <dialog id="disconnected-dialog" class="silver-gradient-bg">
       <h1>Please connect your OnlyKey</h1>
       <p id="connect-instructions" style="display: none; margin-top: 20px;">
-        <button id="request-device-btn" onclick="requestOnlyKeyAccess()" style="padding: 10px 20px; font-size: 16px; cursor: pointer;">
+        <button id="request-device-btn" style="padding: 10px 20px; font-size: 16px; cursor: pointer;">
           Click here to grant device access
         </button>
         <br><br>

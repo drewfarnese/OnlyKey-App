@@ -447,6 +447,13 @@ document.addEventListener('DOMContentLoaded', function() {
       deviceRemovedCallbacks.forEach(cb => cb(device));
     });
   }
+
+  // The page CSP (script-src 'self') blocks inline onclick handlers,
+  // so the grant-access button must be wired up here.
+  const requestDeviceBtn = document.getElementById('request-device-btn');
+  if (requestDeviceBtn) {
+    requestDeviceBtn.addEventListener('click', () => window.requestOnlyKeyAccess());
+  }
 });
 
 // Export for module usage
