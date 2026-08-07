@@ -1,0 +1,67 @@
+name: Release packages
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Release tag (defaults to v<package.json version>)"
+        required: false
+        default: ""
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Enable corepack (pnpm)
+        run: corepack enable
+
+      - name: Install NSIS
+        run: sudo apt-get update && sudo apt-get install -y nsis
+
+      - name: Build Linux .deb
+        run: pnpm run release
+
+      - name: Cross-build Windows installer
+        run: |
+          set -euo pipefail
+          EV=$(node -p "require('electron/package.json').version")
+          echo "Fetching Electron v${EV} win32-x64 runtime..."
+          curl -sSL -o /tmp/electron-win32.zip \
+            "https://github.com/electron/electron/releases/download/v${EV}/electron-v${EV}-win32-x64.zip"
+          mkdir /tmp/electron-win32
+          unzip -q /tmp/electron-win32.zip -d /tmp/electron-win32
+          mv node_modules/electron/dist node_modules/electron/dist-linux
+          mv /tmp/electron-win32 node_modules/electron/dist
+          node -e "require('./tasks/release_windows')({}).then(() => console.log('Windows installer built')).catch((e) => { console.error(e); process.exit(1); })"
+          rm -rf node_modules/electron/dist
+          mv node_modules/electron/dist-linux node_modules/electron/dist
+
+      - name: Create GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          TAG="${{ github.event.inputs.tag }}"
+          if [ -z "$TAG" ]; then
+            TAG="v$(node -p "require('./package.json').version")"
+          fi
+          echo "Publishing release $TAG"
+          if gh release view "$TAG" --repo "$GITHUB_REPOSITORY" > /dev/null 2>&1; then
+            gh release upload "$TAG" releases/*.deb releases/*.exe \
+              --repo "$GITHUB_REPOSITORY" --clobber
+          else
+            gh release create "$TAG" releases/*.deb releases/*.exe \
+              --repo "$GITHUB_REPOSITORY" \
+              --target "$GITHUB_SHA" \
+              --title "OnlyKey App $TAG" \
+              --notes "Automated release build: Linux .deb and Windows NSIS installer (cross-built with the win32-x64 Electron runtime)."
+          fi
