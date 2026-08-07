@@ -119,6 +119,73 @@ function showMainWindow() {
   mainWindow.focus();
 }
 
+function getStartupSettings() {
+  return {
+    launchAtStartup: settings.get('launchAtStartup'),
+    startMinimized: settings.get('startMinimized'),
+  };
+}
+
+// Keep the tray menu and the renderer's App Settings checkboxes in sync no
+// matter which of the two changed a setting
+function broadcastStartupSettings() {
+  refreshTrayMenu();
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    mainWindow.webContents.send('startup-settings-changed', getStartupSettings());
+  }
+}
+
+async function setLaunchAtStartup(enabled) {
+  settings.set('launchAtStartup', enabled);
+  try {
+    await startup.setEnabled(enabled);
+  } catch (err) {
+    console.error('Failed to update launch-at-startup:', err);
+    // Revert the stored setting if the OS change failed
+    settings.set('launchAtStartup', !enabled);
+  }
+  broadcastStartupSettings();
+}
+
+function setStartMinimized(enabled) {
+  settings.set('startMinimized', enabled);
+  broadcastStartupSettings();
+}
+
+function refreshTrayMenu() {
+  if (!tray) return;
+
+  tray.setContextMenu(Menu.buildFromTemplate([
+    {
+      label: 'Show OnlyKey App',
+      click: showMainWindow,
+    },
+    { type: 'separator' },
+    {
+      label: 'Launch at system startup',
+      type: 'checkbox',
+      checked: settings.get('launchAtStartup'),
+      click: (menuItem) => {
+        setLaunchAtStartup(menuItem.checked);
+      },
+    },
+    {
+      // Starts the app hidden and keeps it in the tray when the window closes
+      label: 'Run minimized in the tray',
+      type: 'checkbox',
+      checked: settings.get('startMinimized'),
+      click: (menuItem) => {
+        setStartMinimized(menuItem.checked);
+      },
+    },
+    { type: 'separator' },
+    {
+      label: 'Quit',
+      click: () => app.quit(),
+    },
+  ]));
+}
+
 async function createTray() {
   tray = new Tray(path.join(__dirname, '../app/images/ok-tray-logo.png'));
   tray.setToolTip('OnlyKey App');
@@ -131,43 +198,7 @@ async function createTray() {
     console.error('Failed to read launch-at-startup state:', err);
   }
 
-  const buildMenu = () => Menu.buildFromTemplate([
-    {
-      label: 'Show OnlyKey App',
-      click: showMainWindow,
-    },
-    { type: 'separator' },
-    {
-      label: 'Launch at system startup',
-      type: 'checkbox',
-      checked: settings.get('launchAtStartup'),
-      click: (menuItem) => {
-        settings.set('launchAtStartup', menuItem.checked);
-        startup.setEnabled(menuItem.checked).catch((err) => {
-          console.error('Failed to update launch-at-startup:', err);
-          // Revert the stored setting and checkbox if the OS change failed
-          settings.set('launchAtStartup', !menuItem.checked);
-          tray.setContextMenu(buildMenu());
-        });
-      },
-    },
-    {
-      // Starts the app hidden and keeps it in the tray when the window closes
-      label: 'Run minimized in the tray',
-      type: 'checkbox',
-      checked: settings.get('startMinimized'),
-      click: (menuItem) => {
-        settings.set('startMinimized', menuItem.checked);
-      },
-    },
-    { type: 'separator' },
-    {
-      label: 'Quit',
-      click: () => app.quit(),
-    },
-  ]);
-
-  tray.setContextMenu(buildMenu());
+  refreshTrayMenu();
 
   // On Windows/Linux a plain click on the tray icon brings up the window;
   // on macOS clicking the tray icon opens the context menu instead
@@ -312,6 +343,22 @@ ipcMain.handle('get-app-path', () => {
 
 ipcMain.handle('get-platform', () => {
   return process.platform;
+});
+
+ipcMain.handle('get-startup-settings', () => {
+  return getStartupSettings();
+});
+
+ipcMain.handle('set-startup-settings', async (event, partial) => {
+  const { launchAtStartup, startMinimized } = partial || {};
+  if (typeof startMinimized === 'boolean') {
+    setStartMinimized(startMinimized);
+  }
+  if (typeof launchAtStartup === 'boolean') {
+    await setLaunchAtStartup(launchAtStartup);
+  }
+  // Return the resulting state so the UI reflects a failed OS change
+  return getStartupSettings();
 });
 
 ipcMain.handle('open-external', (event, url) => {

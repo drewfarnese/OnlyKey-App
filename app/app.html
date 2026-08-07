@@ -1316,6 +1316,16 @@
           <li></li>
         </ul>
       </div>
+      <div id="app-settings" class="hide">
+        <label title="Automatically start the OnlyKey App when you log in to your computer">
+          <input type="checkbox" id="launchAtStartupPref" />
+          Launch at startup
+        </label>
+        <label title="Start hidden in the system tray and keep running there when the window is closed">
+          <input type="checkbox" id="runMinimizedPref" />
+          Run minimized in tray
+        </label>
+      </div>
       <div id="versions">
         <i id="appVersion"></i>
         <i id="appUpdater"></i>
@@ -1869,6 +1879,7 @@
     <script src="./scripts/onlyKey/OnlyKeyWizard.js"></script>
     <script src="./scripts/onlyKey/OnlyKeyComm.js"></script>
     <script src="./scripts/updater.js"></script>
+    <script src="./scripts/appSettings.js"></script>
     <script src="./scripts/tray.js"></script>
     <script src="./scripts/external-links.js"></script>
     <script src="./scripts/dialog-links.js"></script>

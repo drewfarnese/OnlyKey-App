@@ -10,6 +10,13 @@ contextBridge.exposeInMainWorld('electronAPI', {
   getPlatform: () => ipcRenderer.invoke('get-platform'),
   openExternal: (url) => ipcRenderer.invoke('open-external', url),
 
+  // App startup settings (launch at login, run minimized in the tray)
+  getStartupSettings: () => ipcRenderer.invoke('get-startup-settings'),
+  setStartupSettings: (partial) => ipcRenderer.invoke('set-startup-settings', partial),
+  onStartupSettingsChanged: (callback) => {
+    ipcRenderer.on('startup-settings-changed', (event, startupSettings) => callback(startupSettings));
+  },
+
   // Platform detection
   isElectron: true,
   isDesktop: true,

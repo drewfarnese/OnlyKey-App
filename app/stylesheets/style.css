@@ -489,6 +489,33 @@ dialog > nav + form > p {
   margin: 0 0.5em;
 }
 
+/* App-level startup settings; only unhidden by appSettings.js when running
+   under Electron */
+#app-settings {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-md);
+  font-size: 0.6875rem;
+  white-space: nowrap;
+}
+
+#app-settings label {
+  display: flex;
+  align-items: center;
+  gap: 0.35em;
+  cursor: pointer;
+  /* the global label color targets the light panels; this bar is dark */
+  color: var(--color-text-muted);
+  font-weight: 400;
+}
+
+#app-settings input[type="checkbox"] {
+  margin: 0;
+  accent-color: var(--color-accent);
+  cursor: pointer;
+}
+
 #versions {
   flex: none;
   font-size: 0.6875rem;
