@@ -793,6 +793,22 @@
               <input type="button" id="backupModeBtn" value="Lock Backup Key" class="caution" />
               <br />
             </form>
+            <form id="app-settings" class="hide">
+              <b>App Settings</b>
+              <a
+                class="tooltip fade"
+                data-tooltip="These settings apply to the OnlyKey App itself, not the connected device."
+              ><img class="moveimage" src="./images/solid/question-circle.svg" /></a>
+              <br />
+              <label title="Automatically start the OnlyKey App when you log in to your computer">
+                <input type="checkbox" id="launchAtStartupPref" />
+                Launch app at system startup
+              </label>
+              <label title="Start hidden in the system tray and keep running there when the window is closed">
+                <input type="checkbox" id="runMinimizedPref" />
+                Run minimized in the system tray
+              </label>
+            </form>
           </div>
         </div>
         <hr />
@@ -1869,6 +1885,7 @@
     <script src="./scripts/onlyKey/OnlyKeyWizard.js"></script>
     <script src="./scripts/onlyKey/OnlyKeyComm.js"></script>
     <script src="./scripts/updater.js"></script>
+    <script src="./scripts/appSettings.js"></script>
     <script src="./scripts/tray.js"></script>
     <script src="./scripts/external-links.js"></script>
     <script src="./scripts/dialog-links.js"></script>

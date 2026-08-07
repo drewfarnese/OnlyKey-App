@@ -1086,6 +1086,22 @@ label {
   font-weight: 500;
 }
 
+/* App-level startup settings in the Preferences panel; only unhidden by
+   appSettings.js when running under Electron */
+#app-settings label {
+  display: flex;
+  align-items: center;
+  gap: 0.4em;
+  margin: 0.35em 0;
+  cursor: pointer;
+  font-weight: 400;
+}
+
+#app-settings input[type="checkbox"] {
+  margin: 0;
+  cursor: pointer;
+}
+
 /* ============================================
    Table Styles
    ============================================ */
