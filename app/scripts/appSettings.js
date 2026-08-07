@@ -1,6 +1,6 @@
-/* Binds the App Settings checkboxes in the status bar to the Electron main
-   process, which owns the settings store, the OS login item, and the tray
-   menu. Stays hidden outside Electron (e.g. the Chrome app build). */
+/* Binds the App Settings checkboxes in the Preferences panel to the Electron
+   main process, which owns the settings store, the OS login item, and the
+   tray menu. Stays hidden outside Electron (e.g. the Chrome app build). */
 
 (function () {
   'use strict';
