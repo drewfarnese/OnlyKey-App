@@ -28,6 +28,15 @@ contextBridge.exposeInMainWorld('electronAPI', {
   onOnlyKeyDeviceRemoved: (callback) => {
     ipcRenderer.on('onlykey-device-removed', (event, device) => callback(device));
   },
+
+  // sshpk needs real Node util/crypto, which the isolated renderer lacks.
+  // Parse here and hand back plain data only; key material never leaves the
+  // renderer<->preload boundary (no IPC to the main process).
+  parseSshPrivateKey: (pem, passphrase) => {
+    const sshpk = require('sshpk');
+    const key = sshpk.parsePrivateKey(pem, 'pem', { passphrase: passphrase || undefined });
+    return { type: key.type, pkcs1: Array.from(key.toBuffer('pkcs1')) };
+  },
 });
 
 // Expose Node.js modules needed by the app

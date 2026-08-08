@@ -1,7 +1,7 @@
 import { create } from 'zustand';
 import { OnlyKeyDevice } from '../api/device/OnlyKeyDevice';
 import type { DeviceClient } from '../api/device/DeviceClient';
-import { ChromeHidTransport } from '../api/transport/ChromeHidTransport';
+import { createHidTransport, listPermittedHidDevices } from '../api/transport/transportFactory';
 import { MockTransport } from '../api/transport/MockTransport';
 import { DeviceType } from '../api/device/types';
 import type { DuoProfileId } from '../api/device/firmwareConstants';
@@ -186,8 +186,8 @@ export const useDeviceStore = create<DeviceStore>((set, get) => ({
   initialize: async (useMock = false) => {
     if (get().device) return;
 
-    const transport = useMock ? new MockTransport() : new ChromeHidTransport();
-    if (transport instanceof ChromeHidTransport) {
+    const transport = useMock ? new MockTransport() : createHidTransport();
+    if (!(transport instanceof MockTransport)) {
       transport.onDeviceAdded(() => {
         // Device just appeared — show Connecting... (not a silent background probe).
         if (!get().isConnected && !connectInFlight) {
@@ -403,7 +403,7 @@ export const useDeviceStore = create<DeviceStore>((set, get) => ({
           isConnecting: false,
           sessionEpoch: hadSession ? get().sessionEpoch + 1 : get().sessionEpoch,
         });
-        const permitted = await ChromeHidTransport.listPermittedDevices();
+        const permitted = await listPermittedHidDevices();
         const onlyKeyDevs = permitted.filter((d) =>
           SUPPORTED_DEVICES.some((f) => f.vendorId === d.vendorId && f.productId === d.productId)
         );

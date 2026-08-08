@@ -2,6 +2,7 @@
 
 const { app, BrowserWindow, Menu, Tray, ipcMain, session, shell } = require('electron');
 const path = require('path');
+const fs = require('fs');
 const settings = require('./settings');
 const startup = require('./startup');
 
@@ -73,10 +74,27 @@ function createWindow() {
     }
   });
 
-  // Load the app HTML
-  mainWindow.loadFile(path.join(__dirname, '../app/app.html')).catch((err) => {
-    console.error('Failed to load app.html:', err);
-  });
+  // Load the React UI (Vite build). ONLYKEY_LEGACY_UI=1 / --legacy-ui keeps the
+  // old app/ UI reachable during the transition; a Vite dev server URL takes
+  // precedence for HMR development.
+  const devServerUrl = process.env.VITE_DEV_SERVER_URL;
+  const useLegacyUi = process.env.ONLYKEY_LEGACY_UI === '1' || process.argv.includes('--legacy-ui');
+  const distIndex = path.join(__dirname, '../dist/index.html');
+  const legacyIndex = path.join(__dirname, '../app/app.html');
+
+  if (devServerUrl && !useLegacyUi) {
+    mainWindow.loadURL(devServerUrl).catch((err) => {
+      console.error('Failed to load dev server URL:', err);
+    });
+  } else {
+    const target = !useLegacyUi && fs.existsSync(distIndex) ? distIndex : legacyIndex;
+    if (target === legacyIndex && !useLegacyUi) {
+      console.warn('dist/index.html not found — run "pnpm run build:ui"; falling back to legacy UI');
+    }
+    mainWindow.loadFile(target).catch((err) => {
+      console.error(`Failed to load ${target}:`, err);
+    });
+  }
 
   mainWindow.webContents.on('did-fail-load', (event, errorCode, errorDescription, validatedURL) => {
     console.error(`Renderer failed to load ${validatedURL}: ${errorDescription} (${errorCode})`);

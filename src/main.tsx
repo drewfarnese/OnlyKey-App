@@ -12,6 +12,10 @@ ReactDOM.createRoot(document.getElementById('root')!).render(
   </React.StrictMode>
 );
 
-if (typeof nw !== 'undefined') {
+const isDesktopShell =
+  typeof nw !== 'undefined' ||
+  (typeof window !== 'undefined' && !!window.electronAPI?.isDesktop);
+
+if (isDesktopShell) {
   import('./desktop/initDesktop').then((m) => m.initDesktop()).catch(console.error);
 }

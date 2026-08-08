@@ -1,5 +1,5 @@
 import { isOpenPgpKey, isSshKey, KEY_SLOTS } from '../../api/device/keySlots';
-import { loadSshpk } from '../../api/device/sshpkNode';
+import { parseSshPrivateKeyRaw } from '../../api/device/sshpkNode';
 import { KeyCandidate, KeyImportResult } from './types';
 
 const AUTO_LOAD_SLOT = 99;
@@ -16,9 +16,8 @@ function rsaTypeFromKeyData(keyData: number[]): number {
 }
 
 async function parseSshBundle(pem: string, passcode: string): Promise<KeyCandidate[]> {
-  const key = loadSshpk().parsePrivateKey(pem, 'pem', { passphrase: passcode || undefined });
-  const der = key.toBuffer('pkcs1');
-  const keyData = Array.from(der);
+  const key = parseSshPrivateKeyRaw(pem, passcode);
+  const keyData = key.keyData;
   const type = key.type === 'ecdsa' || key.type === 'ed25519' ? 2 : rsaTypeFromKeyData(keyData);
 
   return [{ id: '0', name: 'Primary Key', type, keyData }];

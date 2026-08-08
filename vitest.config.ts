@@ -44,18 +44,8 @@ export default defineConfig({
           },
         },
       },
-      {
-        extends: true,
-        test: {
-          name: 'desktop',
-          environment: 'node',
-          include: ['tests/desktop/**/*.test.mjs'],
-          testTimeout: 60_000,
-          hookTimeout: 60_000,
-          fileParallelism: false,
-          maxWorkers: 1,
-        },
-      },
+      // The upstream 'desktop' project exercised the NW.js shell (tests/desktop);
+      // the Electron shell is covered by the existing mocha suite in test/.
     ],
   },
 });

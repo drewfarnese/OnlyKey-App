@@ -24,11 +24,46 @@ function compareSemver(a: string, b: string): number {
   return 0;
 }
 
-function platformPackageKey(): string | null {
-  if (process.platform === 'win32') return 'win64';
-  if (process.platform === 'darwin') return 'mac64';
-  if (process.platform === 'linux') return 'linux64';
+function platformPackageKey(platform: string): string | null {
+  if (platform === 'win32') return 'win64';
+  if (platform === 'darwin') return 'mac64';
+  if (platform === 'linux') return 'linux64';
   return null;
+}
+
+const DEFAULT_MANIFEST_URL = 'https://s3.amazonaws.com/onlykey-app/releases/latest/manifest.json';
+
+/**
+ * Electron flavor of the update check: same manifest, but the renderer has no
+ * fs access, so the platform installer is opened in the system browser for
+ * the user to download instead of being streamed to a temp dir.
+ */
+async function checkForAppUpdateElectron(): Promise<void> {
+  const api = window.electronAPI!;
+  try {
+    const [version, platform] = await Promise.all([api.getAppVersion(), api.getPlatform()]);
+
+    const manifestRes = await fetch(DEFAULT_MANIFEST_URL, { cache: 'no-store' });
+    if (!manifestRes.ok) {
+      throw new Error(`Manifest fetch failed: HTTP ${manifestRes.status}`);
+    }
+
+    const rManifest = (await manifestRes.json()) as RemoteManifest;
+    if (!rManifest?.version || !version) return;
+    if (compareSemver(rManifest.version, version) <= 0) return;
+
+    if (!confirm(`Version ${rManifest.version} is available. Download the update?`)) return;
+
+    const key = platformPackageKey(platform);
+    const remotePkg = key ? rManifest.packages?.[key] : undefined;
+    if (!remotePkg?.url || !isHttpsUrl(remotePkg.url)) {
+      throw new Error('No HTTPS package URL for this platform in the remote manifest');
+    }
+
+    await api.openExternal(remotePkg.url);
+  } catch (e) {
+    console.error('App update check failed:', e);
+  }
 }
 
 function isHttpsUrl(url: string): boolean {
@@ -46,7 +81,11 @@ function isHttpsUrl(url: string): boolean {
  * same user-facing flow as the previous implementation (no auto-swap).
  */
 export async function checkForAppUpdate(): Promise<void> {
-  if (typeof nw === 'undefined' || !userPreferences.autoUpdate) return;
+  if (!userPreferences.autoUpdate) return;
+  if (typeof window !== 'undefined' && window.electronAPI?.isElectron) {
+    return checkForAppUpdateElectron();
+  }
+  if (typeof nw === 'undefined') return;
 
   try {
     const path = require('path') as typeof import('path');
@@ -80,7 +119,7 @@ export async function checkForAppUpdate(): Promise<void> {
 
     if (!confirm(`Version ${rManifest.version} is available. Download the update?`)) return;
 
-    const key = platformPackageKey();
+    const key = platformPackageKey(process.platform);
     const remotePkg = key ? rManifest.packages?.[key] : undefined;
     if (!remotePkg?.url || !isHttpsUrl(remotePkg.url)) {
       throw new Error('No HTTPS package URL for this platform in the remote manifest');

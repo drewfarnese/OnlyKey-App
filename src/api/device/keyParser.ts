@@ -1,6 +1,6 @@
 import { sha256 } from 'js-sha256';
 import { ECC_SLOTS, RSA_SLOTS, isOpenPgpKey, isSshKey } from './keySlots';
-import { loadSshpk } from './sshpkNode';
+import { parseSshPrivateKeyRaw } from './sshpkNode';
 
 export { ECC_SLOTS, KEY_SLOTS, RSA_SLOTS, isOpenPgpKey, isSshKey } from './keySlots';
 
@@ -22,9 +22,8 @@ export async function parsePrivateKey(
 }
 
 function parseSshKey(pem: string, passcode: string, slotChoice: number): ParsedKey {
-  const key = loadSshpk().parsePrivateKey(pem, 'pem', { passphrase: passcode || undefined });
-  const der = key.toBuffer('pkcs1');
-  const keyData = Array.from(der);
+  const key = parseSshPrivateKeyRaw(pem, passcode);
+  const keyData = key.keyData;
 
   let slot = slotChoice;
   let type = 1;

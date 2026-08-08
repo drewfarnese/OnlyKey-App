@@ -1,7 +1,9 @@
 export function getHidStatus(): { available: boolean; hint: string } {
-  const available = typeof chrome !== 'undefined' && !!chrome.hid?.getDevices;
+  const chromeHid = typeof chrome !== 'undefined' && !!chrome.hid?.getDevices;
+  const webHid =
+    typeof navigator !== 'undefined' && !!(navigator as { hid?: unknown }).hid;
 
-  if (available) {
+  if (chromeHid || webHid) {
     return { available: true, hint: 'HID API ready — polling for your device.' };
   }
 
