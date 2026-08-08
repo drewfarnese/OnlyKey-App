@@ -1257,6 +1257,8 @@ html.light .device-messages-line--empty {
 }
 
 .tool-btn-icon {
-  font-size: 1rem;
+  display: inline-flex;
+  align-items: center;
   line-height: 1;
+  opacity: 0.85;
 }

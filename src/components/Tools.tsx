@@ -2,25 +2,33 @@ import React from 'react';
 import { TOOLTIPS } from '../data/tooltips';
 import { HelpTip } from './ui/HelpTip';
 import { Tooltip } from './ui/Tooltip';
+import {
+  LockIcon,
+  UnlockIcon,
+  FolderLockIcon,
+  FolderOpenIcon,
+  MailIcon,
+  TerminalIcon,
+} from './ui/icons';
 
 const WEBCRYPT_TOOLS = [
-  { label: 'Encrypt Messages', href: 'https://apps.crp.to/app/encrypt', icon: '🔒', tip: TOOLTIPS.encryptMessages.text },
-  { label: 'Decrypt Messages', href: 'https://apps.crp.to/app/decrypt', icon: '🔓', tip: TOOLTIPS.decryptMessages.text },
-  { label: 'Encrypt Files', href: 'https://apps.crp.to/app/encrypt-file', icon: '📁', tip: TOOLTIPS.encryptFiles.text },
-  { label: 'Decrypt Files', href: 'https://apps.crp.to/app/decrypt-file', icon: '📂', tip: TOOLTIPS.decryptFiles.text },
+  { label: 'Encrypt Messages', href: 'https://apps.crp.to/app/encrypt', icon: <LockIcon />, tip: TOOLTIPS.encryptMessages.text },
+  { label: 'Decrypt Messages', href: 'https://apps.crp.to/app/decrypt', icon: <UnlockIcon />, tip: TOOLTIPS.decryptMessages.text },
+  { label: 'Encrypt Files', href: 'https://apps.crp.to/app/encrypt-file', icon: <FolderLockIcon />, tip: TOOLTIPS.encryptFiles.text },
+  { label: 'Decrypt Files', href: 'https://apps.crp.to/app/decrypt-file', icon: <FolderOpenIcon />, tip: TOOLTIPS.decryptFiles.text },
 ];
 
 const AGENT_TOOLS = [
   {
     label: 'OnlyKey GPG Agent',
     href: 'https://docs.crp.to/gpgagentquickstart.html',
-    icon: '✉️',
+    icon: <MailIcon />,
     tip: TOOLTIPS.gpgAgent.text,
   },
   {
     label: 'OnlyKey SSH Agent',
     href: 'https://docs.crp.to/sshagentquickstart.html',
-    icon: '▶',
+    icon: <TerminalIcon />,
     tip: TOOLTIPS.sshAgent.text,
   },
 ];

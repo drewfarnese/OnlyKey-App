@@ -18,6 +18,18 @@ import DeviceMessages from './components/DeviceMessages';
 import { HelpTip } from './components/ui/HelpTip';
 import { TOOLTIPS } from './data/tooltips';
 import { shouldUseMockDevice } from './utils/mockDevice';
+import {
+  RocketIcon,
+  LayoutGridIcon,
+  KeyIcon,
+  SaveIcon,
+  CpuIcon,
+  SlidersIcon,
+  ShieldIcon,
+  WrenchIcon,
+  PlugIcon,
+  LoaderIcon,
+} from './components/ui/icons';
 
 const App: React.FC = () => {
   const {
@@ -58,14 +70,14 @@ const App: React.FC = () => {
         </div>
 
         <nav className="flex-1 min-h-0 px-2.5 py-2 space-y-1 overflow-hidden" aria-label="Main navigation">
-          <NavItem testId="nav-setup" label="Setup" icon="🚀" active={activeTab === 'setup'} onClick={() => setActiveTab('setup')} />
-          <NavItem testId="nav-slots" label="Slots" icon="⚙️" active={activeTab === 'slots'} onClick={() => setActiveTab('slots')} />
-          <NavItem testId="nav-keys" label="Keys" icon="🔑" active={activeTab === 'keys'} onClick={() => setActiveTab('keys')} />
-          <NavItem testId="nav-backup" label="Backup" icon="💾" active={activeTab === 'backup'} onClick={() => setActiveTab('backup')} />
-          <NavItem testId="nav-firmware" label="Firmware" icon="🆙" active={activeTab === 'firmware'} onClick={() => setActiveTab('firmware')} />
-          <NavItem testId="nav-preferences" label="Preferences" icon="🔧" active={activeTab === 'preferences'} onClick={() => setActiveTab('preferences')} />
-          <NavItem testId="nav-advanced" label="Advanced" icon="🛡️" active={activeTab === 'advanced'} onClick={() => setActiveTab('advanced')} />
-          <NavItem testId="nav-tools" label="Tools" icon="🧰" active={activeTab === 'tools'} onClick={() => setActiveTab('tools')} />
+          <NavItem testId="nav-setup" label="Setup" icon={<RocketIcon />} active={activeTab === 'setup'} onClick={() => setActiveTab('setup')} />
+          <NavItem testId="nav-slots" label="Slots" icon={<LayoutGridIcon />} active={activeTab === 'slots'} onClick={() => setActiveTab('slots')} />
+          <NavItem testId="nav-keys" label="Keys" icon={<KeyIcon />} active={activeTab === 'keys'} onClick={() => setActiveTab('keys')} />
+          <NavItem testId="nav-backup" label="Backup" icon={<SaveIcon />} active={activeTab === 'backup'} onClick={() => setActiveTab('backup')} />
+          <NavItem testId="nav-firmware" label="Firmware" icon={<CpuIcon />} active={activeTab === 'firmware'} onClick={() => setActiveTab('firmware')} />
+          <NavItem testId="nav-preferences" label="Preferences" icon={<SlidersIcon />} active={activeTab === 'preferences'} onClick={() => setActiveTab('preferences')} />
+          <NavItem testId="nav-advanced" label="Advanced" icon={<ShieldIcon />} active={activeTab === 'advanced'} onClick={() => setActiveTab('advanced')} />
+          <NavItem testId="nav-tools" label="Tools" icon={<WrenchIcon />} active={activeTab === 'tools'} onClick={() => setActiveTab('tools')} />
         </nav>
 
         <div className="sidebar-status" data-testid="sidebar-status">
@@ -104,15 +116,15 @@ const App: React.FC = () => {
               className="absolute inset-0 bg-ok-dark z-50 flex flex-col items-center justify-center p-8 text-center"
             >
               <div className="relative">
-                <div className="w-24 h-24 bg-ok-gray rounded-full flex items-center justify-center text-4xl mb-6 shadow-2xl border border-white/10 animate-pulse">
-                  🔌
+                <div className="w-24 h-24 bg-ok-gray rounded-full flex items-center justify-center text-muted mb-6 shadow-2xl border border-white/10 animate-pulse">
+                  <PlugIcon className="w-10 h-10" />
                 </div>
                 {isConnecting && (
                   <div
                     data-testid="connecting-badge"
                     className="absolute -bottom-2 -right-2 w-8 h-8 bg-ok-blue rounded-full border-4 border-ok-dark flex items-center justify-center animate-spin"
                   >
-                    <span className="text-[10px] text-on-blue">⌛</span>
+                    <LoaderIcon className="w-4 h-4 text-on-blue" />
                   </div>
                 )}
               </div>
@@ -166,7 +178,7 @@ const App: React.FC = () => {
 interface NavItemProps {
   testId: string;
   label: string;
-  icon: string;
+  icon: React.ReactNode;
   active?: boolean;
   onClick: () => void;
 }
@@ -180,7 +192,7 @@ const NavItem: React.FC<NavItemProps> = ({ testId, label, icon, active, onClick 
       active ? 'bg-ok-blue text-on-blue shadow-lg shadow-ok-blue/20' : 'text-muted hover:bg-white/5 hover:text-secondary'
     }`}
   >
-    <span className="text-lg">{icon}</span>
+    <span className={`shrink-0 ${active ? '' : 'opacity-80'}`}>{icon}</span>
     <span className="font-medium">{label}</span>
   </button>
 );
