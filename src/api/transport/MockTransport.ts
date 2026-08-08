@@ -574,7 +574,8 @@ export class MockTransport implements TransportInterface {
   private emitBinaryLabel(slotId: number, label: string, force = false): void {
     if ((!this.connected && !force) || !this.receiveCallback) return;
     const data = new Uint8Array(PACKET_SIZE);
-    data[0] = slotId & 0xff;
+    // Real firmware sends the slot number as BCD: slot 10 arrives as byte 0x10.
+    data[0] = parseInt(String(slotId), 16) & 0xff;
     data[1] = 124; // '|'
     for (let i = 0; i < label.length && i + 2 < PACKET_SIZE; i++) {
       data[i + 2] = label.charCodeAt(i);

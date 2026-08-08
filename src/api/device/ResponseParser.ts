@@ -115,9 +115,15 @@ export class ResponseParser {
     if (labelMatch) {
       parsedSlotId = this.parseSlotId(labelMatch[1]);
       parsedLabel = labelMatch[2].trim();
-    } else if (data[0] > 0 && data[0] <= 24 && (data[1] === 124 || text.startsWith('|'))) {
-      parsedSlotId = data[0];
-      parsedLabel = text.startsWith('|') ? text.substring(1).trim() : text.trim();
+    } else if (data[0] > 0 && (data[1] === 124 || text.startsWith('|'))) {
+      // Firmware sends the slot number as BCD: slot 10 arrives as byte 0x10
+      // (16), slot 11 as 0x11, … (v5.6 hex-printed the byte, then parsed it
+      // as decimal). Taking data[0] literally loses every label above slot 9.
+      const bcdSlot = parseInt(data[0].toString(16), 10);
+      if (!Number.isNaN(bcdSlot) && bcdSlot >= 1 && bcdSlot <= 24) {
+        parsedSlotId = bcdSlot;
+        parsedLabel = text.startsWith('|') ? text.substring(1).trim() : text.trim();
+      }
     }
 
     if (parsedSlotId !== undefined && parsedLabel !== undefined) {
