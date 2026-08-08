@@ -10,7 +10,7 @@ export interface ElectronAPI {
   openExternal(url: string): Promise<void>;
   getStartupSettings(): Promise<StartupSettings>;
   setStartupSettings(partial: Partial<StartupSettings>): Promise<StartupSettings>;
-  onStartupSettingsChanged(callback: (settings: StartupSettings) => void): void;
+  onStartupSettingsChanged(callback: (settings: StartupSettings) => void): () => void;
   isElectron: boolean;
   isDesktop: boolean;
   onOnlyKeyDeviceAdded(callback: (device: unknown) => void): void;

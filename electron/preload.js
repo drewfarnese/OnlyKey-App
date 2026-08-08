@@ -14,7 +14,9 @@ contextBridge.exposeInMainWorld('electronAPI', {
   getStartupSettings: () => ipcRenderer.invoke('get-startup-settings'),
   setStartupSettings: (partial) => ipcRenderer.invoke('set-startup-settings', partial),
   onStartupSettingsChanged: (callback) => {
-    ipcRenderer.on('startup-settings-changed', (event, startupSettings) => callback(startupSettings));
+    const listener = (event, startupSettings) => callback(startupSettings);
+    ipcRenderer.on('startup-settings-changed', listener);
+    return () => ipcRenderer.removeListener('startup-settings-changed', listener);
   },
 
   // Platform detection
