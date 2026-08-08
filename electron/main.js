@@ -2,6 +2,7 @@
 
 const { app, BrowserWindow, Menu, Tray, ipcMain, session, shell } = require('electron');
 const path = require('path');
+const fs = require('fs');
 const settings = require('./settings');
 const startup = require('./startup');
 
@@ -40,8 +41,8 @@ function createWindow() {
 
   mainWindow = new BrowserWindow({
     show: !startMinimized,
-    width: 1024,
-    height: 768,
+    width: 1200,
+    height: 800,
     minWidth: 800,
     minHeight: 400,
     icon: iconPath,
@@ -73,10 +74,23 @@ function createWindow() {
     }
   });
 
-  // Load the app HTML
-  mainWindow.loadFile(path.join(__dirname, '../app/app.html')).catch((err) => {
-    console.error('Failed to load app.html:', err);
-  });
+  // Load the React UI (Vite build); a Vite dev server URL takes precedence
+  // for HMR development.
+  const devServerUrl = process.env.VITE_DEV_SERVER_URL;
+  const distIndex = path.join(__dirname, '../dist/index.html');
+
+  if (devServerUrl) {
+    mainWindow.loadURL(devServerUrl).catch((err) => {
+      console.error('Failed to load dev server URL:', err);
+    });
+  } else {
+    if (!fs.existsSync(distIndex)) {
+      console.error('dist/index.html not found — run "pnpm run build:ui" first');
+    }
+    mainWindow.loadFile(distIndex).catch((err) => {
+      console.error(`Failed to load ${distIndex}:`, err);
+    });
+  }
 
   mainWindow.webContents.on('did-fail-load', (event, errorCode, errorDescription, validatedURL) => {
     console.error(`Renderer failed to load ${validatedURL}: ${errorDescription} (${errorCode})`);
@@ -187,7 +201,7 @@ function refreshTrayMenu() {
 }
 
 async function createTray() {
-  tray = new Tray(path.join(__dirname, '../app/images/ok-tray-logo.png'));
+  tray = new Tray(path.join(__dirname, '../resources/ok-tray-logo.png'));
   tray.setToolTip('OnlyKey App');
 
   // Reflect the real OS state in the menu (and stored setting) in case the

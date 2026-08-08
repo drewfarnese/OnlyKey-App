@@ -8,36 +8,49 @@
   "scripts": {
     "start": "electron .",
     "start:dev": "NODE_ENV=development electron .",
+    "dev": "vite",
+    "build:ui": "vite build",
+    "start:ui": "vite build && electron .",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:coverage": "vitest run --coverage",
     "build": "gulp build",
     "build_win": "gulp build",
     "prerelease": "rm -rf ./node_modules ./release_node_modules && pnpm install --prod --config.node-linker=hoisted && mkdir release_node_modules && cp -R ./node_modules ./release_node_modules/node_modules && rm -rf ./node_modules && pnpm install && pnpm run build --env=production",
     "prerelease_win": "rm -rf ./node_modules ./release_node_modules && pnpm install --prod --config.node-linker=hoisted && mkdir release_node_modules && cp -R ./node_modules ./release_node_modules/node_modules && rm -rf ./node_modules && pnpm install && pnpm run build_win --env=production",
     "release": "gulp release --env=production",
-    "release_win": "gulp release --env=production",
-    "pretest": "pnpm run build",
-    "test": "mocha 'test/**/*.mjs'",
-    "testgulp": "gulp -v",
-    "prechrome": "gulp build --env=chrome",
-    "chrome": "echo 'Please run something like:'; echo \"chrome --load-and-launch-app=$(pwd)/build\""
+    "release_win": "gulp release --env=production"
   },
   "packageManager": "pnpm@9.15.4",
   "dependencies": {
     "auto-launch": "^5.0.5",
     "js-sha256": "^0.11.1",
-    "sshpk": "^1.17.0"
+    "openpgp": "^6.3.1",
+    "react": "^19.2.4",
+    "react-dom": "^19.2.4",
+    "sshpk": "^1.18.0",
+    "zustand": "^5.0.11"
   },
   "devDependencies": {
-    "chai": "^6.2.2",
+    "@tailwindcss/vite": "^4.2.1",
+    "@testing-library/jest-dom": "^6.9.1",
+    "@testing-library/react": "^16.3.2",
+    "@testing-library/user-event": "^14.6.1",
+    "@types/chrome": "^0.1.37",
+    "@types/node": "^25.3.5",
+    "@types/react": "^19.2.14",
+    "@types/react-dom": "^19.2.3",
+    "@vitejs/plugin-react": "^5.1.4",
+    "@vitest/coverage-v8": "^4.1.10",
     "electron": "^35.1.5",
-    "chai-as-promised": "^8.0.2",
-    "eslint": "^10.0.1",
     "fs-jetpack": "^5.1.0",
     "gulp": "^5.0.1",
-    "gulp-sourcemaps": "^3.0.0",
-    "json": "^11.0.0",
-    "mocha": "^11.7.5",
-    "selenium-webdriver": "^4.8.0",
-    "tree-kill": "^1.2.2",
+    "happy-dom": "^20.10.6",
+    "tailwindcss": "^4.2.1",
+    "typescript": "^5.9.3",
+    "vite": "^7.3.6",
+    "vitest": "^4.1.10",
     "yargs": "^18.0.0"
   },
   "optionalDependencies": {
@@ -61,15 +74,5 @@
   "bugs": {
     "url": "https://onlykey.discourse.group/"
   },
-  "homepage": "https://github.com/trustcrypto/OnlyKey-App#readme",
-  "window": {
-    "icon": "icon.png",
-    "show": true,
-    "toolbar": true,
-    "width": 1000,
-    "height": 600,
-    "min_width": 800,
-    "min_height": 400,
-    "position": "center"
-  }
+  "homepage": "https://github.com/trustcrypto/OnlyKey-App#readme"
 }

@@ -6,3 +6,5 @@ Thumbs.db
 /releases/
 /tmp/
 /release_node_modules/
+/dist/
+/coverage/

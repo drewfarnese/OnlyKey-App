@@ -69,24 +69,24 @@ For general OnlyKey questions, check out the [OnlyKey Support Forum](https://gro
 
 ## Developer Notes
 
-The app is built on [Electron](https://www.electronjs.org/) and uses [pnpm](https://pnpm.io/) as its package manager.
+The app is built on [Electron](https://www.electronjs.org/) with a [React](https://react.dev/) + TypeScript frontend (adopted from upstream's 5.7.0 rewrite, built with [Vite](https://vitejs.dev/)), and uses [pnpm](https://pnpm.io/) as its package manager.
 
 Repository layout:
 
 - `electron/` – Electron main process (`main.js`) and preload script. Device access goes through WebHID; the main process grants HID permission for OnlyKey devices.
-- `app/` – the renderer: `app.html`, scripts (including `webHidAdapter.js`, which adapts the app's HID calls to WebHID), and stylesheets.
+- `src/` – the renderer: React components, the device API layer (`src/api/device`), and HID transports (`src/api/transport` — WebHID under Electron, with a mock transport for tests).
 - `tasks/` – gulp build and release tasks.
 - `resources/` – icons and per-OS packaging resources.
-- `test/` – mocha test suite.
 
-To install dependencies and run the app:
+To install dependencies, build the UI, and run the app:
 
     $ pnpm install
-    $ pnpm start
+    $ pnpm run start:ui
 
-To run with DevTools open:
+To develop the UI with hot reload (in two terminals):
 
-    $ pnpm run start:dev
+    $ pnpm dev
+    $ VITE_DEV_SERVER_URL=http://localhost:5173 pnpm start
 
 To create releases:
 
@@ -96,7 +96,7 @@ This will create an installer in the `releases/` subfolder. The installer is cre
 
 On Windows, you need to install [NSIS](https://nsis.sourceforge.io/) first, and ensure that it's present in your shell's `%PATH%`. That is, add `C:/Program Files (x86)/NSIS` or similar to your `%PATH%` in the operating system settings. On Mac OS, the optional `appdmg` dependency (installed automatically by `pnpm install`) is used to build the dmg.
 
-To run tests:
+To run tests (vitest — unit and UI suites, no hardware required):
 
     $ pnpm test
 
