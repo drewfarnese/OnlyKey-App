@@ -812,6 +812,16 @@ html.light .help-tip-link:hover .help-tip-icon {
   gap: 0.65rem;
 }
 
+/* App Settings sits after the two-column grid (whose last rows drop their
+   bottom border) — draw its own top separator and end the page cleanly. */
+.pref-row--app-settings {
+  border-top: 1px solid var(--ok-border);
+  padding-top: 1.35rem;
+  border-bottom: none;
+  padding-bottom: 0;
+  margin-bottom: 0;
+}
+
 .pref-row-hint {
   margin: 0.35rem 0 0;
   font-size: 0.8125rem;

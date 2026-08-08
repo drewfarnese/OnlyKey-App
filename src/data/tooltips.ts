@@ -11,6 +11,9 @@ export const TOOLTIPS = {
     href: 'https://docs.crp.to/usersguide.html#slots',
     text: "On the OnlyKey you have multiple buttons and each button has two slots assigned that can be activated by holding the button for less than or more than one second. Each slot can be set with a Label, URL, Username, Password, and multi-factor authentication. Slots with no label are shown as '<empty>' in the app. For security, only labels are read from the device — not other login fields — so '<empty>' does not indicate whether a slot is in use.",
   },
+  appSettings: {
+    text: 'These settings control how the OnlyKey App behaves on this computer (not the OnlyKey device): start the app automatically when you log in, and keep it running in the system tray when the window is closed.',
+  },
   typeSpeed: {
     href: 'https://docs.crp.to/usersguide.html#configurable-keyboard-type-speed',
     text: 'Change the rate of speed at which OnlyKey types out characters.\n\n1 - about one character per second\n4 - default\n10 - almost instantaneous type speed',

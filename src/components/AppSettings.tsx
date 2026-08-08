@@ -1,5 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import type { StartupSettings } from '../types/electron-api';
+import { HelpTip } from './ui/HelpTip';
+import { TOOLTIPS } from '../data/tooltips';
 
 /**
  * App-level startup settings (launch at login, run minimized in the tray).
@@ -42,11 +44,13 @@ const AppSettings: React.FC = () => {
   };
 
   return (
-    <section className="pref-row" data-testid="app-settings">
+    <section className="pref-row pref-row--app-settings" data-testid="app-settings">
       <h3 className="pref-row-title">
         <span className="pref-row-title-text">App Settings</span>
+        <HelpTip tooltip={TOOLTIPS.appSettings.text} />
       </h3>
-      <div className="pref-row-actions flex-col items-start gap-2">
+      {/* Not .pref-row-actions — its align-items:center would center the column */}
+      <div className="flex flex-col items-start gap-2">
         <label
           className="flex items-center gap-2"
           title="Automatically start the OnlyKey App when you log in to your computer"
