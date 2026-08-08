@@ -22,7 +22,7 @@ jobs:
         run: pnpm install --frozen-lockfile
 
       - name: Unit and UI tests (vitest)
-        run: pnpm run test:unit
+        run: pnpm test
 
       - name: Build UI (vite)
         run: pnpm run build:ui

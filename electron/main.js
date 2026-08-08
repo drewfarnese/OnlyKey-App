@@ -74,25 +74,21 @@ function createWindow() {
     }
   });
 
-  // Load the React UI (Vite build). ONLYKEY_LEGACY_UI=1 / --legacy-ui keeps the
-  // old app/ UI reachable during the transition; a Vite dev server URL takes
-  // precedence for HMR development.
+  // Load the React UI (Vite build); a Vite dev server URL takes precedence
+  // for HMR development.
   const devServerUrl = process.env.VITE_DEV_SERVER_URL;
-  const useLegacyUi = process.env.ONLYKEY_LEGACY_UI === '1' || process.argv.includes('--legacy-ui');
   const distIndex = path.join(__dirname, '../dist/index.html');
-  const legacyIndex = path.join(__dirname, '../app/app.html');
 
-  if (devServerUrl && !useLegacyUi) {
+  if (devServerUrl) {
     mainWindow.loadURL(devServerUrl).catch((err) => {
       console.error('Failed to load dev server URL:', err);
     });
   } else {
-    const target = !useLegacyUi && fs.existsSync(distIndex) ? distIndex : legacyIndex;
-    if (target === legacyIndex && !useLegacyUi) {
-      console.warn('dist/index.html not found — run "pnpm run build:ui"; falling back to legacy UI');
+    if (!fs.existsSync(distIndex)) {
+      console.error('dist/index.html not found — run "pnpm run build:ui" first');
     }
-    mainWindow.loadFile(target).catch((err) => {
-      console.error(`Failed to load ${target}:`, err);
+    mainWindow.loadFile(distIndex).catch((err) => {
+      console.error(`Failed to load ${distIndex}:`, err);
     });
   }
 
@@ -205,7 +201,7 @@ function refreshTrayMenu() {
 }
 
 async function createTray() {
-  tray = new Tray(path.join(__dirname, '../app/images/ok-tray-logo.png'));
+  tray = new Tray(path.join(__dirname, '../resources/ok-tray-logo.png'));
   tray.setToolTip('OnlyKey App');
 
   // Reflect the real OS state in the menu (and stored setting) in case the
