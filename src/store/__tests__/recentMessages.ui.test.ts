@@ -12,6 +12,12 @@ describe('recentMessages retention', () => {
     const { device } = useDeviceStore.getState();
     expect(device).toBeTruthy();
 
+    // The mock connects locked, and the session-security guard drops device
+    // messages while locked. Retention is what's under test here, so run it
+    // against an unlocked session; the guard itself is covered by the
+    // sessionWipe security tests.
+    useDeviceStore.setState({ isLocked: false });
+
     for (let i = 1; i <= 7; i++) {
       device!.emit('messageReceived', `Line ${i}`);
     }
