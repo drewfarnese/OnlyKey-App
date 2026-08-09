@@ -41,14 +41,16 @@ For information on using the app see the [OnlyKey User's Guide](https://docs.crp
 
 ## Screenshots
 
-The UI has been significantly reworked compared to the official app:
+The UI has been significantly reworked compared to the official app, with a sidebar navigation and live device status:
 
 | | |
 |:---:|:---:|
-| ![Connect screen](docs/screenshots/connect.png) | ![Preferences panel](docs/screenshots/preferences.png) |
-| *Connect screen* | *Preferences* |
-| ![Keys panel](docs/screenshots/keys.png) | ![Backup and Restore panel](docs/screenshots/backup-restore.png) |
-| *Keys* | *Backup/Restore* |
+| ![Setup panel](docs/screenshots/setup.png) | ![Keys panel](docs/screenshots/keys.png) |
+| *Setup* | *Keys* |
+| ![Backup and Restore panel](docs/screenshots/backup-restore.png) | ![Firmware panel](docs/screenshots/firmware.png) |
+| *Backup/Restore* | *Firmware* |
+| ![Preferences panel](docs/screenshots/preferences.png) | ![Advanced panel](docs/screenshots/advanced.png) |
+| *Preferences* | *Advanced* |
 | ![Tools panel](docs/screenshots/tools.png) | |
 | *Tools* | |
 
