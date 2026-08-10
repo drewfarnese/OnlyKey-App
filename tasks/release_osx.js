@@ -70,7 +70,7 @@ const prepareOsSpecificThings = function () {
 const packToDmgFile = function () {
     return new Promise(function (resolve, reject) {
         const appdmg = require('appdmg');
-        const dmgName = manifest.name + '_' + manifest.version + '.dmg';
+        const dmgName = manifest.productName + '_' + manifest.version + '.dmg';
 
         // Prepare appdmg config
         let dmgManifest = projectDir.read('resources/osx/appdmg.json');
