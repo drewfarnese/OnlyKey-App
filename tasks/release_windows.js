@@ -37,7 +37,7 @@ var init = function (params={}) {
     releasesDir = params.releasesDir || projectDir.dir('./releases');
     manifest = params.manifest || projectDir.read('package.json', 'json');
 
-    readyAppDir = tmpDir.cwd(manifest.name);
+    readyAppDir = tmpDir.cwd(manifest.productName);
     return Promise.resolve();
 };
 
@@ -57,7 +57,7 @@ var copyBuiltApp = function () {
 };
 
 var renameExecutable = function () {
-    return jetpack.renameAsync(readyAppDir.path('electron.exe'), manifest.name + '.exe');
+    return jetpack.renameAsync(readyAppDir.path('electron.exe'), manifest.productName + '.exe');
 };
 
 var prepareOsSpecificThings = function () {
@@ -74,13 +74,13 @@ var createInstaller = function () {
             return;
         }
 
-        var finalPackageName = manifest.name + '_' + manifest.version + '.exe';
+        var finalPackageName = manifest.productName + '_' + manifest.version + '.exe';
         var installScript = projectDir.read('resources/windows/installer.nsi');
         installScript = utils.replace(installScript, {
-            name: manifest.name,
+            name: manifest.productName,
             productName: manifest.productName,
             version: manifest.version,
-            exec: manifest.name + '.exe',
+            exec: manifest.productName + '.exe',
             src: readyAppDir.path(),
             dest: releasesDir.path(finalPackageName),
             icon: readyAppDir.path('icon.ico'),

@@ -2,9 +2,9 @@
 Version={{version}}
 Type=Application
 Encoding=UTF-8
-Name={{name}}
+Name={{productName}}
 Comment={{description}}
-Exec=/opt/{{name}}/{{name}}
-Icon=/opt/{{name}}/icon.png
+Exec=/opt/{{productName}}/{{productName}}
+Icon=/opt/{{productName}}/icon.png
 Terminal=false
 Categories=Utility;

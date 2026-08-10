@@ -62,6 +62,6 @@ jobs:
             gh release create "$TAG" releases/*.deb releases/*.exe \
               --repo "$GITHUB_REPOSITORY" \
               --target "$GITHUB_SHA" \
-              --title "OnlyKey App $TAG" \
+              --title "OnlyKey $TAG" \
               --notes "Automated release build: Linux .deb and Windows NSIS installer (cross-built with the win32-x64 Electron runtime)."
           fi

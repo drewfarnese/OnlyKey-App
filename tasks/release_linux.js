@@ -18,9 +18,9 @@ var init = function (params={}) {
     releasesDir = params.releasesDir || projectDir.dir('./releases');
     manifest = params.manifest || projectDir.read('package.json', 'json');
 
-    packName = manifest.name + '_' + manifest.version;
+    packName = manifest.productName + '_' + manifest.version;
     packDir = tmpDir.dir(packName);
-    readyAppDir = packDir.cwd('opt', manifest.name);
+    readyAppDir = packDir.cwd('opt', manifest.productName);
     return Promise.resolve();
 };
 
@@ -40,7 +40,7 @@ var copyBuiltApp = function () {
 };
 
 var renameExecutable = function () {
-    return jetpack.renameAsync(readyAppDir.path('electron'), manifest.name);
+    return jetpack.renameAsync(readyAppDir.path('electron'), manifest.productName);
 };
 
 var prepareOsSpecificThings = function () {
@@ -56,13 +56,13 @@ var prepareOsSpecificThings = function () {
         version: manifest.version,
         author: manifest.author
     });
-    packDir.write('usr/share/applications/' + manifest.name + '.desktop', desktop);
+    packDir.write('usr/share/applications/' + manifest.productName + '.desktop', desktop);
 
     var udevRules = projectDir.read('resources/linux/49-onlykey.rules');
     packDir.write('etc/udev/rules.d/49-onlykey.rules' , udevRules);
 
     var postinst = projectDir.read('resources/linux/postinst');
-    postinst = utils.replace(postinst, { name: manifest.name });
+    postinst = utils.replace(postinst, { productName: manifest.productName });
     // mode >=0755 и <=0775
     packDir.write('DEBIAN/postinst' , postinst, {mode: '755'});
 

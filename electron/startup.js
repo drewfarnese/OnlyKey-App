@@ -12,7 +12,7 @@ function getLinuxAutoLauncher() {
   if (!linuxAutoLauncher) {
     const AutoLaunch = require('auto-launch');
     // auto-launch derives the .desktop entry name from the executable's
-    // basename ("onlykey-app" in a release, "electron" in development), so a
+    // basename ("OnlyKey" in a release, "electron" in development), so a
     // dev checkout never clobbers an installed release's autostart entry
     linuxAutoLauncher = new AutoLaunch({
       name: 'OnlyKey',

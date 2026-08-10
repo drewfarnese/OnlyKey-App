@@ -2,7 +2,7 @@
 # This `DEBIAN/postinst` script is run post-installation
 
 # Electron's SUID sandbox helper must be root-owned with mode 4755
-chown root:root /opt/{{name}}/chrome-sandbox
-chmod 4755 /opt/{{name}}/chrome-sandbox
+chown root:root /opt/{{productName}}/chrome-sandbox
+chmod 4755 /opt/{{productName}}/chrome-sandbox
 
 udevadm control --reload-rules
