@@ -28,7 +28,7 @@ const paths = {
 // -------------------------------------
 
 gulp.task("clean", function (callback) {
-  return destDir.dirAsync(".", { empty: true }).then((res) => callback());
+  return destDir.dirAsync(".", { empty: true }).then(() => callback());
 });
 
 // Build the React UI into dist/ before assembling the package

@@ -651,7 +651,7 @@ export class OnlyKeyDevice extends TypedEmitter implements DeviceClient {
     try {
       await this.transport.connect(filters);
     } catch (e) {
-      if (seq !== this.connectSeq) throw new Error('Device disconnected');
+      if (seq !== this.connectSeq) throw new Error('Device disconnected', { cause: e });
       throw e;
     }
     if (seq !== this.connectSeq) {

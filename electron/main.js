@@ -228,7 +228,7 @@ function isExternalUrl(url) {
   try {
     const protocol = new URL(url).protocol;
     return protocol === 'https:' || protocol === 'http:';
-  } catch (e) {
+  } catch {
     return false;
   }
 }

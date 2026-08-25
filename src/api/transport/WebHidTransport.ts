@@ -242,7 +242,7 @@ export class WebHidTransport implements TransportInterface {
       if (/disconnect|not found|invalid|closed/i.test(message)) {
         this.handleDisconnection();
       }
-      throw new Error(message || 'Unknown send error');
+      throw new Error(message || 'Unknown send error', { cause: err });
     }
   }
 

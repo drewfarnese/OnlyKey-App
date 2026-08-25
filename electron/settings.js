@@ -20,7 +20,7 @@ function load() {
   try {
     const stored = JSON.parse(fs.readFileSync(settingsFilePath(), 'utf8'));
     return { ...DEFAULTS, ...stored };
-  } catch (e) {
+  } catch {
     return { ...DEFAULTS };
   }
 }
