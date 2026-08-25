@@ -1,5 +1,6 @@
 import { TransportInterface, DeviceFilter } from './Transport.interface';
 import { MessageID, FieldID, MESSAGE_HEADER, PACKET_SIZE, GLOBAL_SLOT } from '../device/types';
+import { hidLabelSlotByte } from '../device/ResponseParser';
 
 export type MockDeviceKind = 'classic' | 'duo' | 'uninitialized' | 'bootloader';
 
@@ -110,6 +111,7 @@ export class MockTransport implements TransportInterface {
   private correctPin: string;
   private maxPinAttempts: number;
   private pinAttempts = 0;
+  private setupPinStep: Record<'pin' | 'pin2' | 'sdpin', number> = { pin: 0, pin2: 0, sdpin: 0 };
   private responseDelayMs: number;
   private binaryLabels: boolean;
   private verbose: boolean;
@@ -214,7 +216,9 @@ export class MockTransport implements TransportInterface {
 
     // Initial status after plug-in (async like real HID).
     await this.delay();
-    if (epoch !== this.epoch || !this.connected) return;
+    if (epoch !== this.epoch || !this.connected) {
+      throw new Error('Device disconnected');
+    }
 
     if (this.isBootloader) {
       this.emitText('BOOTLOADER');
@@ -255,6 +259,7 @@ export class MockTransport implements TransportInterface {
     }
 
     await this.delay();
+    if (!this.connected) throw new Error('Not connected');
     await this.handleCommand(msgId, packet);
   }
 
@@ -271,7 +276,7 @@ export class MockTransport implements TransportInterface {
       return { vendorId: 0x1d50, productId: 0x614c };
     }
     if (this.deviceType === 'bootloader') {
-      return { vendorId: 0x1d50, productId: 0x60fc };
+      return { vendorId: 0x0000, productId: 0xb001 };
     }
     // Classic (newer firmware VID/PID)
     return { vendorId: 0x1d50, productId: 0x60fc };
@@ -304,11 +309,11 @@ export class MockTransport implements TransportInterface {
         return;
 
       case MessageID.OKSETPIN2:
-        this.emitText(this.requireConfigOrOk('PIN2 set'));
+        this.emitClassicPinSetup('pin2');
         return;
 
       case MessageID.OKSETSDPIN:
-        this.emitText(this.requireConfigOrOk('SD PIN set'));
+        this.emitClassicPinSetup('sdpin');
         return;
 
       case MessageID.OKSETSLOT:
@@ -365,17 +370,23 @@ export class MockTransport implements TransportInterface {
     }
   }
 
+  private emitClassicPinSetup(which: 'pin' | 'pin2' | 'sdpin'): void {
+    this.setupPinStep[which] += 1;
+    const n = ((this.setupPinStep[which] - 1) % 4) + 1;
+    const pinNoun = which === 'sdpin' ? 'self-destruct PIN' : 'PIN';
+    if (n === 1) this.emitText(`OnlyKey is ready, enter your ${pinNoun}`);
+    else if (n === 2) this.emitText('Successful PIN entry');
+    else if (n === 3) this.emitText('OnlyKey is ready, re-enter your PIN to confirm');
+    else this.emitText('Successfully set PIN');
+  }
+
   private handleSetPin(packet: Uint8Array): void {
     // Payload starts after header+msgId (no slot/field for OKSETPIN)
     const payload = packet.slice(MESSAGE_HEADER.length + 1);
     const digits = this.decodePinDigits(payload);
 
-    // Empty packet / classic keypad entry: unlock after "hardware" success
     if (!digits) {
-      this.isLocked = false;
-      if (this.unlockEntersConfigMode) this.isConfigMode = true;
-      this.pinAttempts = 0;
-      this.emitText(this.statusUnlocked());
+      this.emitClassicPinSetup('pin');
       return;
     }
 
@@ -386,6 +397,10 @@ export class MockTransport implements TransportInterface {
       this.pinAttempts += 1;
       if (this.maxPinAttempts > 0 && this.pinAttempts >= this.maxPinAttempts) {
         this.emitText('Error password attempts for this session exceeded');
+        return;
+      }
+      if (this.deviceType === 'duo' && !isSetup) {
+        this.emitText(this.statusInitialized());
         return;
       }
       this.emitText('Error incorrect PIN');
@@ -526,17 +541,16 @@ export class MockTransport implements TransportInterface {
       return;
     }
 
-    // Each FW chunk: ack immediately. After the app's sendRequest resolves it either
-    // waits for NEXT BLOCK (more blocks) or SUCCESSFULLY LOADED FW (last block).
-    // Emit both follow-ups: intermediate waits match NEXT; final waits ignore NEXT and match SUCCESS.
+    // Packet: [FF×4][OKFWUPDATE][flag][payload]
+    // 5.6: every chunk ACKs RECEIVED OKFWUPDATE; last chunk of a hex line then
+    // NEXT BLOCK / SUCCESSFULLY LOADED FW. Last-chunk waiters match NEXT/SUCCESS
+    // only so RECEIVED is not consumed first.
+    const flag = packet[MESSAGE_HEADER.length + 1];
     this.emitText('RECEIVED OKFWUPDATE');
-    const epoch = this.epoch;
-    void this.sleep(5).then(() => {
-      if (this.connected && epoch === this.epoch) this.emitText('NEXT BLOCK');
-    });
-    void this.sleep(15).then(() => {
-      if (this.connected && epoch === this.epoch) this.emitText('SUCCESSFULLY LOADED FW');
-    });
+    if (flag === 0xff) return;
+
+    this.emitText('NEXT BLOCK');
+    this.emitText('SUCCESSFULLY LOADED FW');
   }
 
   // --- Status helpers ---------------------------------------------------------
@@ -574,8 +588,7 @@ export class MockTransport implements TransportInterface {
   private emitBinaryLabel(slotId: number, label: string, force = false): void {
     if ((!this.connected && !force) || !this.receiveCallback) return;
     const data = new Uint8Array(PACKET_SIZE);
-    // Real firmware sends the slot number as BCD: slot 10 arrives as byte 0x10.
-    data[0] = parseInt(String(slotId), 16) & 0xff;
+    data[0] = hidLabelSlotByte(slotId);
     data[1] = 124; // '|'
     for (let i = 0; i < label.length && i + 2 < PACKET_SIZE; i++) {
       data[i + 2] = label.charCodeAt(i);

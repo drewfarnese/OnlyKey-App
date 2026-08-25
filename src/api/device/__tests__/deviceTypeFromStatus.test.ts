@@ -11,16 +11,29 @@ import {
 import { deviceTypeFromProductId } from '../firmwareConstants';
 
 describe('device type detection', () => {
+  it('recognizes UNINITIALIZED before the INITIALIZED substring', () => {
+    expect(inferDeviceTypeFromStatusText('UNINITIALIZEDv2.1.0-prod')).toBe(DeviceType.UNINITIALIZED);
+    expect(inferDeviceTypeFromStatusText('UNINITIALIZED-Dv3.0.0-prod')).toBe(DeviceType.UNINITIALIZED);
+  });
+
   it('recognizes DUO from INITIALIZED-D and UNLOCKED-D', () => {
     expect(inferDeviceTypeFromStatusText('INITIALIZED-Dv3.0.0-prod')).toBe(DeviceType.DUO);
     expect(inferDeviceTypeFromStatusText('UNLOCKED-Dv3.0.0-prod')).toBe(DeviceType.DUO);
   });
 
-  it('classifies plain UNLOCKEDv by embedded major version', () => {
+  it('classifies UNLOCKED by the version suffix letter, not the major version', () => {
+    expect(inferDeviceTypeFromStatusText('UNLOCKEDv3.0.4-prodc')).toBe(DeviceType.CLASSIC);
+    expect(inferDeviceTypeFromStatusText('UNLOCKEDv3.0.4-prodp')).toBe(DeviceType.DUO);
+    expect(inferDeviceTypeFromStatusText('UNLOCKEDv2.1.0-prodc')).toBe(DeviceType.CLASSIC);
+    expect(inferDeviceTypeFromVersion('v3.0.4-prodc')).toBe(DeviceType.CLASSIC);
+    expect(inferDeviceTypeFromVersion('v3.0.4-prodp')).toBe(DeviceType.DUO);
+    expect(inferDeviceTypeFromVersion('v2.1.0-proc')).toBe(DeviceType.CLASSIC);
+  });
+
+  it('falls back to major version only when the suffix letter is missing', () => {
     expect(inferDeviceTypeFromStatusText('UNLOCKEDv3.0.0-prod')).toBe(DeviceType.DUO);
     expect(inferDeviceTypeFromStatusText('UNLOCKEDv2.1.0-prod')).toBe(DeviceType.CLASSIC);
     expect(inferDeviceTypeFromVersion('v3.0.0-prod')).toBe(DeviceType.DUO);
-    expect(inferDeviceTypeFromVersion('v2.1.0-proc')).toBe(DeviceType.CLASSIC);
   });
 
   it('infers DUO from label slot indices above 12', () => {
@@ -43,8 +56,25 @@ describe('device type detection', () => {
     expect(isDuoNoPinFromStatusText('INITIALIZED-Dv3.0.0-prodn')).toBe(true);
   });
 
-  it('prefers v2 major version over a trailing p suffix on Classic unlock', () => {
-    expect(inferDeviceTypeFromStatusText('UNLOCKEDv2.1.0-prodp')).toBe(DeviceType.CLASSIC);
+  it('treats a trailing p as DUO even on a v2 version string', () => {
+    expect(inferDeviceTypeFromStatusText('UNLOCKEDv2.1.0-prodp')).toBe(DeviceType.DUO);
+  });
+
+  it('treats plain INITIALIZED as Classic and empty text as unknown', () => {
+    expect(inferDeviceTypeFromStatusText('')).toBeUndefined();
+    expect(inferDeviceTypeFromStatusText('   ')).toBeUndefined();
+    expect(inferDeviceTypeFromStatusText('INITIALIZED')).toBe(DeviceType.CLASSIC);
+    expect(inferDeviceTypeFromStatusText('UNLOCKED')).toBeUndefined();
+  });
+
+  it('uses trailing n/p/c when major version is missing', () => {
+    expect(inferDeviceTypeFromStatusText('UNLOCKEDprodn')).toBe(DeviceType.DUO);
+    expect(inferDeviceTypeFromStatusText('UNLOCKEDprodp')).toBe(DeviceType.DUO);
+    expect(inferDeviceTypeFromStatusText('UNLOCKEDprodc')).toBe(DeviceType.CLASSIC);
+    expect(inferDeviceTypeFromVersion('')).toBeUndefined();
+    expect(inferDeviceTypeFromVersion('customn')).toBe(DeviceType.DUO);
+    expect(inferDeviceTypeFromVersion('customc')).toBe(DeviceType.CLASSIC);
+    expect(inferDeviceTypeFromVersion('mystery')).toBeUndefined();
   });
 
   it('maps DUO USB product IDs', () => {

@@ -4,12 +4,17 @@ declare const nw: {
     get: () => {
       isVisible: boolean;
       isMinimized?: boolean;
+      width: number;
+      height: number;
+      x: number;
+      y: number;
       _onlykeySuppressShow?: boolean;
       _onlykeyCloseBound?: boolean;
       show: (focus?: boolean) => void;
       hide: () => void;
       focus: () => void;
       restore?: () => void;
+      moveTo: (x: number, y: number) => void;
       close: (force?: boolean) => void;
       removeAllListeners: (event?: string) => void;
       setShowInTaskbar?: (show: boolean) => void;
@@ -17,7 +22,7 @@ declare const nw: {
     };
     getAll?: (callback: (wins: Array<ReturnType<(typeof nw)['Window']['get']>>) => void) => void;
   };
-  Tray: new (options: { icon: string }) => {
+  Tray: new (options: { icon: string; title?: string; iconsAreTemplates?: boolean }) => {
     tooltip: string;
     menu: unknown;
     on: (event: string, callback: () => void) => void;

@@ -1,5 +1,5 @@
 import { vi } from 'vitest';
-import { useDeviceStore } from '../store/useDeviceStore';
+import { resetDeviceStoreRuntimeForTests, useDeviceStore } from '../store/useDeviceStore';
 import { disconnectedDeviceSnapshot } from '../store/deviceStateReset';
 import type { DeviceStore } from '../store/useDeviceStore';
 import { DeviceType } from '../api/device/types';
@@ -16,6 +16,10 @@ type StoreSeed = Partial<
     | 'isRefreshingLabels'
     | 'isPolling'
     | 'deviceType'
+    | 'deviceTypeSource'
+    | 'usbProductId'
+    | 'maxLabelSlot'
+    | 'lastStatusText'
     | 'version'
     | 'devicePinSet'
     | 'duoProfile'
@@ -33,10 +37,12 @@ type StoreSeed = Partial<
     | 'selectedSlotId'
     | 'sessionEpoch'
     | 'device'
+    | 'refreshLabels'
   >
 >;
 
 export async function resetDeviceStoreForTests(): Promise<void> {
+  resetDeviceStoreRuntimeForTests();
   const { stopPolling, device } = useDeviceStore.getState();
   stopPolling();
   if (device && typeof device.disconnect === 'function') {
@@ -82,7 +88,9 @@ export function createMockDeviceClient(overrides: Partial<DeviceClient> = {}): D
     setSlotFields: mockResolved(),
     setPin: mockResolved(),
     beginClassicPinEntry: mockResolved(),
+    cancelClassicPinEntry: mockResolved(),
     refreshStatus: mockResolved(),
+    setTime: mockResolved(),
     setPin2: mockResolved(),
     setSDPin: mockResolved(),
     sendPinDUO: mockResolved(),

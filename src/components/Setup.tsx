@@ -1,14 +1,17 @@
 import React, { useState, useRef } from 'react';
 import { useDeviceStore } from '../store/useDeviceStore';
 import { DeviceType } from '../api/device/types';
+import { PIN_ENTRY_CANCELLED } from '../api/device/OnlyKeyDevice';
 import { parseBackupData, parseFirmwareData } from '../api/device/utils';
-import { storePendingFirmware } from '../desktop/firmwareCheck';
+import { clearPendingFirmware, storePendingFirmware } from '../desktop/firmwareCheck';
 import { importPemKey, isSelectionRequiredError } from '../services/keyImport/keyImportService';
 import { parseKeyBundle } from '../services/keyImport/keyBundleParser';
 import PrivateKeySelectDialog from './dialogs/PrivateKeySelectDialog';
 import type { KeyCandidate } from '../services/keyImport/keyImportService';
 import { KEY_SLOTS } from '../api/device/keyParser';
+import { configModePassphraseHint } from '../data/configMode';
 import { TOOLTIPS } from '../data/tooltips';
+import ConfigModeInstructions from './ConfigModeInstructions';
 import { CriticalText, SetButton, StepFieldset } from './ui/forms';
 import { HelpTip } from './ui/HelpTip';
 
@@ -23,8 +26,66 @@ const BACKUP_RSA_SLOTS = [
   ...KEY_SLOTS.ecc.map((s) => ({ value: s, label: `ECC ${s - 100} (${s})` })),
 ];
 
+const SetupShell: React.FC<{ isDuo: boolean; children: React.ReactNode }> = ({ isDuo, children }) => (
+  <div className="page-shell">
+    <header className="page-header">
+      <h2 className="text-xl font-bold">
+        {isDuo ? 'OnlyKey DUO Setup' : 'OnlyKey Setup'}{' '}
+        <HelpTip
+          href={isDuo ? TOOLTIPS.setup.duoHref : TOOLTIPS.setup.href}
+          tooltip={TOOLTIPS.setup.text}
+        />
+      </h2>
+    </header>
+    <div className="page-body page-body--scroll setup-body space-y-4">{children}</div>
+  </div>
+);
+
+const StepNav: React.FC<{
+  isProcessing: boolean;
+  isUninitialized: boolean;
+  showGuided?: boolean;
+  onNext?: () => void;
+  onCancel?: () => void;
+  onGuided?: () => void;
+  nextLabel?: string;
+  nextDisabled?: boolean;
+}> = ({
+  isProcessing,
+  isUninitialized,
+  showGuided,
+  onNext,
+  onCancel,
+  onGuided,
+  nextLabel = 'Next',
+  nextDisabled,
+}) => (
+  <div className="setup-step-nav flex flex-wrap items-center gap-3 border-t border-white/10">
+    {showGuided && isUninitialized && (
+      <>
+        <b>Guided Setup</b>{' '}
+        <SetButton onClick={onNext ?? onGuided} disabled={isProcessing || nextDisabled}>
+          {isProcessing ? 'Please wait…' : 'Next'}
+        </SetButton>
+      </>
+    )}
+    {!showGuided && onNext && (
+      <>
+        <SetButton onClick={onNext} disabled={isProcessing || nextDisabled}>
+          {isProcessing ? 'Please wait…' : nextLabel}
+        </SetButton>
+        {onCancel && (
+          <SetButton onClick={onCancel}>
+            Cancel
+          </SetButton>
+        )}
+      </>
+    )}
+  </div>
+);
+
 const Setup: React.FC = () => {
-  const { device, deviceType, isLocked, isConfigMode, setWorking } = useDeviceStore();
+  const { device, deviceType, isLocked, isConfigMode, isBootloader, setWorking } = useDeviceStore();
   const [guided, setGuided] = useState(false);
   const [advancedSetup, setAdvancedSetup] = useState(false);
   const [classicStep, setClassicStep] = useState<ClassicStep>('Step1');
@@ -41,6 +102,7 @@ const Setup: React.FC = () => {
   const [secProfileMode, setSecProfileMode] = useState(1);
   const restoreInputRef = useRef<HTMLInputElement>(null);
   const firmwareInputRef = useRef<HTMLInputElement>(null);
+  const pinWhichRef = useRef<'pin' | 'pin2' | 'sdpin' | null>(null);
   const [pgpKey, setPgpKey] = useState('');
   const [pgpPasscode, setPgpPasscode] = useState('');
   const [pgpSlot, setPgpSlot] = useState(1);
@@ -59,19 +121,53 @@ const Setup: React.FC = () => {
     try {
       await fn();
     } catch (e: unknown) {
-      setError(e instanceof Error ? e.message : String(e));
+      const msg = e instanceof Error ? e.message : String(e);
+      if (msg !== PIN_ENTRY_CANCELLED) setError(msg);
     } finally {
       setIsProcessing(false);
     }
   };
 
-  const resetToStep1 = () => {
+  const goToLanding = () => {
+    pinWhichRef.current = null;
     setGuided(false);
     setError(null);
+    setIsProcessing(false);
     setPasscode1Disclaimer(false);
     setPasscode2Disclaimer(false);
     setPasscode3Disclaimer(false);
+    setBackupPassphrase('');
+    setBackupConfirm('');
     isDuo ? setDuoStep('Step1') : setClassicStep('Step1');
+  };
+
+  const cancelSetupStep = () => {
+    const which = pinWhichRef.current;
+    const onClassicPinStep =
+      !isDuo &&
+      (classicStep === 'Step2' ||
+        classicStep === 'Step3' ||
+        classicStep === 'Step4' ||
+        classicStep === 'Step5' ||
+        classicStep === 'Step6' ||
+        classicStep === 'Step7');
+    if (onClassicPinStep && which && device) {
+      void device.cancelClassicPinEntry(which);
+    }
+    goToLanding();
+  };
+
+  const pinPrompt = (which: 'pin' | 'pin2' | 'sdpin') => {
+    pinWhichRef.current = which;
+    return device!.beginClassicPinEntry(which, 'prompt').catch((e: unknown) => {
+      const msg = e instanceof Error ? e.message : String(e);
+      if (msg === PIN_ENTRY_CANCELLED) return;
+      setError(msg);
+    });
+  };
+  const pinCommit = (which: 'pin' | 'pin2' | 'sdpin') => {
+    pinWhichRef.current = which;
+    return device!.beginClassicPinEntry(which, 'commit');
   };
 
   const startGuided = () => {
@@ -81,13 +177,21 @@ const Setup: React.FC = () => {
       setDuoStep(advancedSetup ? 'Step2' : 'Step8');
     } else {
       setClassicStep('Step2');
+      void pinPrompt('pin');
     }
   };
 
   const startUnguided = (step: ClassicStep | DuoStep) => {
     setGuided(false);
     setError(null);
-    isDuo ? setDuoStep(step as DuoStep) : setClassicStep(step as ClassicStep);
+    if (isDuo) {
+      setDuoStep(step as DuoStep);
+      return;
+    }
+    setClassicStep(step as ClassicStep);
+    if (step === 'Step2') void pinPrompt('pin');
+    if (step === 'Step4') void pinPrompt('pin2');
+    if (step === 'Step6') void pinPrompt('sdpin');
   };
 
   const handleBackup = () =>
@@ -97,46 +201,57 @@ const Setup: React.FC = () => {
       if (backupPassphrase.length < 25) throw new Error('Passphrase must be at least 25 characters.');
       if (!isInitialized && advancedSetup) await device!.setBackupKeyMode(backupKeyMode);
       await device!.setBackupPassphrase(backupPassphrase);
+      setBackupPassphrase('');
+      setBackupConfirm('');
       if (guided) {
         isDuo ? setDuoStep('Step10') : setClassicStep('Step10');
       } else {
-        resetToStep1();
+        goToLanding();
       }
     });
 
-  const loadPgpBackupKey = async (selectedCandidateId?: string, targetSlot?: number) =>
-    run(async () => {
-      if (!pgpKey.trim()) throw new Error('OpenPGP private key cannot be empty.');
-      if (!pgpPasscode) throw new Error('Passcode cannot be empty.');
-      await device!.setBackupKeyMode(pgpBackupKeyMode);
-      await importPemKey(device!, {
-        pem: pgpKey.trim(),
-        passcode: pgpPasscode,
-        slotChoice: pgpSlot,
-        setAsBackup: true,
-        selectedCandidateId,
-        targetSlot,
-      });
-      setPgpKey('');
-      setPgpPasscode('');
-      setShowPgpKeySelect(false);
-      setPgpCandidates([]);
-      if (guided) {
-        isDuo ? setDuoStep('Step10') : setClassicStep('Step10');
-      } else {
-        resetToStep1();
-      }
+  const importPgpBackupKey = async (selectedCandidateId?: string, targetSlot?: number) => {
+    if (!pgpKey.trim()) throw new Error('OpenPGP private key cannot be empty.');
+    if (!pgpPasscode) throw new Error('Passcode cannot be empty.');
+    await importPemKey(device!, {
+      pem: pgpKey.trim(),
+      passcode: pgpPasscode,
+      slotChoice: pgpSlot,
+      setAsBackup: true,
+      setAsSignature: pgpSetAsSignature,
+      selectedCandidateId,
+      targetSlot,
     });
+    await device!.setBackupKeyMode(pgpBackupKeyMode);
+    setPgpKey('');
+    setPgpPasscode('');
+    setShowPgpKeySelect(false);
+    setPgpCandidates([]);
+    if (guided) {
+      isDuo ? setDuoStep('Step10') : setClassicStep('Step10');
+    } else {
+      goToLanding();
+    }
+  };
+
+  const loadPgpBackupKey = (selectedCandidateId?: string, targetSlot?: number) =>
+    run(() => importPgpBackupKey(selectedCandidateId, targetSlot));
 
   const handlePgpImport = async () => {
+    setIsProcessing(true);
+    setError(null);
     try {
-      await loadPgpBackupKey();
+      await importPgpBackupKey();
     } catch (e: unknown) {
       if (isSelectionRequiredError(e)) {
         const bundle = await parseKeyBundle(pgpKey.trim(), pgpPasscode, pgpSlot);
         setPgpCandidates(bundle.candidates);
         setShowPgpKeySelect(true);
+      } else {
+        setError(e instanceof Error ? e.message : String(e));
       }
+    } finally {
+      setIsProcessing(false);
     }
   };
 
@@ -158,9 +273,9 @@ const Setup: React.FC = () => {
         setWorking(false);
       }
       if (guided) {
-        isDuo ? resetToStep1() : setClassicStep('Step11');
+        isDuo ? goToLanding() : setClassicStep('Step11');
       } else {
-        resetToStep1();
+        goToLanding();
       }
     });
 
@@ -168,56 +283,21 @@ const Setup: React.FC = () => {
     run(async () => {
       const blocks = parseFirmwareData(await file.text());
       if (!blocks.length) throw new Error('Could not parse firmware file.');
+      if (isBootloader) {
+        await device!.loadFirmwareBlocks(blocks);
+        clearPendingFirmware();
+        goToLanding();
+        return;
+      }
+      try {
+        await device!.triggerBootloader();
+      } catch (err) {
+        clearPendingFirmware();
+        throw err;
+      }
       storePendingFirmware(blocks);
-      await device!.firmwareUpdate(blocks);
-      resetToStep1();
+      goToLanding();
     });
-
-  const SetupShell: React.FC<{ children: React.ReactNode }> = ({ children }) => (
-    <div className="page-shell">
-      <header className="page-header">
-        <h2 className="text-xl font-bold">
-          {isDuo ? 'OnlyKey DUO Setup' : 'OnlyKey Setup'}{' '}
-          <HelpTip
-            href={isDuo ? TOOLTIPS.setup.duoHref : TOOLTIPS.setup.href}
-            tooltip={TOOLTIPS.setup.text}
-          />
-        </h2>
-      </header>
-      <div className="page-body page-body--scroll setup-body space-y-4">{children}</div>
-    </div>
-  );
-
-  const StepNav: React.FC<{
-    showGuided?: boolean;
-    onNext?: () => void;
-    onCancel?: () => void;
-    nextLabel?: string;
-    nextDisabled?: boolean;
-  }> = ({ showGuided, onNext, onCancel, nextLabel = 'Next', nextDisabled }) => (
-    <div className="setup-step-nav flex flex-wrap items-center gap-3 border-t border-white/10">
-      {showGuided && isUninitialized && (
-        <>
-          <b>Guided Setup</b>{' '}
-          <SetButton onClick={onNext ?? startGuided} disabled={isProcessing || nextDisabled}>
-            {isProcessing ? 'Please wait…' : 'Next'}
-          </SetButton>
-        </>
-      )}
-      {!showGuided && onNext && (
-        <>
-          <SetButton onClick={onNext} disabled={isProcessing || nextDisabled}>
-            {isProcessing ? 'Please wait…' : nextLabel}
-          </SetButton>
-          {onCancel && (
-            <SetButton onClick={onCancel} disabled={isProcessing}>
-              Cancel
-            </SetButton>
-          )}
-        </>
-      )}
-    </div>
-  );
 
   const ConfigModeBlock: React.FC = () => (
     <div className="init-only setup-ready-block">
@@ -227,20 +307,13 @@ const Setup: React.FC = () => {
       <p className="setup-ready-sub">
         Use the options below to change PINs or backup passphrase.
       </p>
-      <p className="setup-ready-critical">
-        Before selecting an option below, you must first put your OnlyKey{isDuo ? ' DUO' : ''} into config mode.
-      </p>
-      <p>
-        To do this{' '}
-        {isDuo ? (
-          <>hold down button #1 on your OnlyKey DUO for 10+ seconds and release.</>
-        ) : (
-          <>hold down button #6 on your OnlyKey for 5+ seconds and release.</>
-        )}{' '}
-        The light will turn off.
-        {isDuo && <> If a PIN was previously set, re-enter the PIN to enter config mode.</>}
-        {' '}You will notice the OnlyKey flashes red in config mode.
-      </p>
+      <ConfigModeInstructions
+        leadIn={
+          <p className="setup-ready-critical">
+            Before selecting an option below, you must first put your OnlyKey{isDuo ? ' DUO' : ''} into config mode.
+          </p>
+        }
+      />
     </div>
   );
 
@@ -286,7 +359,7 @@ const Setup: React.FC = () => {
   // --- DUO ---
   if (isDuo) {
     return (
-      <SetupShell>
+      <SetupShell isDuo={isDuo}>
         {error && <p className="critical-text">{error}</p>}
         {isInitialized && isLocked && !isConfigMode && duoStep === 'Step1' && (
           <CriticalText>Put your OnlyKey DUO into config mode before continuing.</CriticalText>
@@ -385,11 +458,25 @@ const Setup: React.FC = () => {
             backupConfirm={backupConfirm}
             onPassphraseChange={setBackupPassphrase}
             onConfirmChange={setBackupConfirm}
-            configHint={
-              isInitialized
-                ? 'To set a new passphrase on your OnlyKey put OnlyKey in config mode. For OnlyKey hold down button #6 on your OnlyKey for 5+ seconds and release. For OnlyKey DUO hold down button #1 on your OnlyKey for 10+ seconds and release. The light will turn off and if a PIN has been set re-enter your PIN to enter config mode. You will notice the OnlyKey flashes red in config mode.'
-                : undefined
-            }
+            configHint={isInitialized ? configModePassphraseHint(deviceType) : undefined}
+            onUsePgpKey={() => setDuoStep('Step9')}
+          />
+        )}
+
+        {duoStep === 'Step9' && (
+          <PgpBackupKeyStep
+            pgpSlot={pgpSlot}
+            onSlotChange={setPgpSlot}
+            pgpKey={pgpKey}
+            onKeyChange={setPgpKey}
+            pgpPasscode={pgpPasscode}
+            onPasscodeChange={setPgpPasscode}
+            pgpSetAsSignature={pgpSetAsSignature}
+            onSetAsSignatureChange={setPgpSetAsSignature}
+            pgpBackupKeyMode={pgpBackupKeyMode}
+            onBackupKeyModeChange={setPgpBackupKeyMode}
+            configHint={isInitialized ? configModePassphraseHint(deviceType) : undefined}
+            onUsePassphrase={() => setDuoStep('Step8')}
           />
         )}
 
@@ -408,39 +495,40 @@ const Setup: React.FC = () => {
         )}
 
         {duoStep === 'Step1' && (
-          <StepNav showGuided onNext={startGuided} />
+          <StepNav isProcessing={isProcessing} isUninitialized={isUninitialized} showGuided onNext={startGuided} />
         )}
 
         {duoStep === 'Step2' && (
-          <StepNav
+          <StepNav isProcessing={isProcessing} isUninitialized={isUninitialized}
             onNext={() =>
               run(async () => {
                 if (!passcode1Disclaimer) throw new Error('Please accept the disclaimer.');
                 if (duoPins.primary !== duoPins.primaryConfirm) throw new Error('PINs do not match.');
                 if (duoPins.sd && duoPins.sd !== duoPins.sdConfirm) throw new Error('Self-destruct PINs do not match.');
-                const pins = duoPins.sd ? [duoPins.primary, duoPins.sd] : [duoPins.primary];
-                await device!.sendPinDUO(pins, true);
+                await device!.sendPinDUO([duoPins.primary, '', duoPins.sd], true);
                 if (guided) setDuoStep('Step8');
-                else resetToStep1();
+                else goToLanding();
               })
             }
-            onCancel={resetToStep1}
+            onCancel={cancelSetupStep}
             nextLabel="Next"
             nextDisabled={!passcode1Disclaimer || !duoPins.primary}
           />
         )}
 
-        {(duoStep === 'Step8' || duoStep === 'Step10' || duoStep === 'Step11') && (
-          <StepNav
+        {(duoStep === 'Step8' || duoStep === 'Step9' || duoStep === 'Step10' || duoStep === 'Step11') && (
+          <StepNav isProcessing={isProcessing} isUninitialized={isUninitialized}
             onNext={
               duoStep === 'Step8'
                 ? handleBackup
-                : duoStep === 'Step10'
-                  ? () => restoreInputRef.current?.click()
-                  : () => firmwareInputRef.current?.click()
+                : duoStep === 'Step9'
+                  ? handlePgpImport
+                  : duoStep === 'Step10'
+                    ? () => restoreInputRef.current?.click()
+                    : () => firmwareInputRef.current?.click()
             }
-            onCancel={resetToStep1}
-            nextLabel={duoStep === 'Step8' ? 'Next' : duoStep === 'Step11' ? 'Load Firmware to OnlyKey' : 'Next'}
+            onCancel={cancelSetupStep}
+            nextLabel={duoStep === 'Step11' ? 'Load Firmware to OnlyKey' : 'Next'}
           />
         )}
 
@@ -448,7 +536,7 @@ const Setup: React.FC = () => {
           open={showPgpKeySelect}
           candidates={pgpCandidates}
           onClose={() => setShowPgpKeySelect(false)}
-          onSelect={(candidateId, slot) => loadPgpBackupKey(candidateId, slot)}
+          onConfirm={(candidateId: string, slot: number) => loadPgpBackupKey(candidateId, slot)}
         />
       </SetupShell>
     );
@@ -456,7 +544,7 @@ const Setup: React.FC = () => {
 
   // --- CLASSIC ---
   return (
-    <SetupShell>
+    <SetupShell isDuo={isDuo}>
       {error && <p className="critical-text">{error}</p>}
 
       {classicStep === 'Step1' && <Step1 />}
@@ -563,7 +651,10 @@ const Setup: React.FC = () => {
                 Second profile must be configured during initial setup and cannot be set up later.
                 <br />
                 <br />
-                <SetButton onClick={() => setClassicStep('Step6')}>
+                <SetButton onClick={() => {
+                  setClassicStep('Step6');
+                  void pinPrompt('sdpin');
+                }}>
                   <b>I don&apos;t want a second profile, skip this step</b>
                 </SetButton>
               </p>
@@ -618,7 +709,10 @@ const Setup: React.FC = () => {
                 Second profile must be configured during initial setup and cannot be set up later.
                 <br />
                 <br />
-                <SetButton onClick={() => setClassicStep('Step6')}>
+                <SetButton onClick={() => {
+                  setClassicStep('Step6');
+                  void pinPrompt('sdpin');
+                }}>
                   <b>I don&apos;t want a second profile, skip this step</b>
                 </SetButton>
               </p>
@@ -739,102 +833,26 @@ const Setup: React.FC = () => {
           backupConfirm={backupConfirm}
           onPassphraseChange={setBackupPassphrase}
           onConfirmChange={setBackupConfirm}
-          configHint={
-            isInitialized
-              ? 'To set a new passphrase on your OnlyKey put OnlyKey in config mode. For OnlyKey hold down button #6 on your OnlyKey for 5+ seconds and release. For OnlyKey DUO hold down button #1 on your OnlyKey for 10+ seconds and release. The light will turn off and if a PIN has been set re-enter your PIN to enter config mode. You will notice the OnlyKey flashes red in config mode.'
-              : undefined
-          }
+          configHint={isInitialized ? configModePassphraseHint(deviceType) : undefined}
+          onUsePgpKey={() => setClassicStep('Step9')}
         />
       )}
 
       {classicStep === 'Step9' && (
-        <div id="Step9">
-          <h3>Set a Backup Key</h3>
-          {isInitialized && (
-            <p>
-              To set a new passphrase on your OnlyKey put OnlyKey in config mode. For OnlyKey hold down button #6 on your
-              OnlyKey for 5+ seconds and release. For OnlyKey DUO hold down button #1 on your OnlyKey for 10+ seconds and
-              release. The light will turn off and if a PIN has been set re-enter your PIN to enter config mode. You will
-              notice the OnlyKey flashes red in config mode.
-            </p>
-          )}
-          <p>
-            Your OpenPGP key will be used for secure backup and restore of your OnlyKey, make sure to store it in a
-            secure location.
-          </p>
-          <p>
-            Need a key? Follow our guide{' '}
-            <a href="https://docs.crp.to/importpgp.html#generating-keys" target="_blank" rel="noreferrer">
-              here
-            </a>{' '}
-            for generating an OpenPGP key.
-          </p>
-          <label>
-            Slot:{' '}
-            <select value={pgpSlot} onChange={(e) => setPgpSlot(parseInt(e.target.value, 10))}>
-              {BACKUP_RSA_SLOTS.map((s) => (
-                <option key={s.value} value={s.value}>{s.label}</option>
-              ))}
-            </select>
-          </label>
-          <br />
-          <br />
-          <label className="block">
-            Backup OpenPGP RSA/ECC Key:
-            <textarea
-              value={pgpKey}
-              onChange={(e) => setPgpKey(e.target.value)}
-              rows={3}
-              placeholder="OpenPGP Key -- paste PEM file contents"
-              className="field-input mt-1 font-mono text-sm w-full max-w-2xl"
-            />
-          </label>
-          <br />
-          <label className="block">
-            Passphrase:
-            <input
-              type="password"
-              value={pgpPasscode}
-              onChange={(e) => setPgpPasscode(e.target.value)}
-              className="field-input mt-1 block max-w-xl"
-              autoComplete="new-password"
-            />
-          </label>
-          <br />
-          <br />
-          <label>
-            <input
-              type="checkbox"
-              checked={pgpSetAsSignature}
-              onChange={(e) => setPgpSetAsSignature(e.target.checked)}
-            />{' '}
-            Set as signature key - Use key to sign messages
-          </label>
-          <br />
-          <br />
-          <label>
-            <input
-              type="radio"
-              checked={pgpBackupKeyMode === 0}
-              onChange={() => setPgpBackupKeyMode(0)}
-            />{' '}
-            <u>Permit future backup key changes (Default)</u>
-          </label>
-          <br />
-          <label>
-            <input
-              type="radio"
-              checked={pgpBackupKeyMode === 1}
-              onChange={() => setPgpBackupKeyMode(1)}
-            />{' '}
-            <u>Lock backup key on this device</u>
-          </label>
-          <br />
-          <br />
-          <SetButton onClick={() => setClassicStep('Step8')}>
-            <b>Use passphrase instead of PGP key</b>
-          </SetButton>
-        </div>
+        <PgpBackupKeyStep
+          pgpSlot={pgpSlot}
+          onSlotChange={setPgpSlot}
+          pgpKey={pgpKey}
+          onKeyChange={setPgpKey}
+          pgpPasscode={pgpPasscode}
+          onPasscodeChange={setPgpPasscode}
+          pgpSetAsSignature={pgpSetAsSignature}
+          onSetAsSignatureChange={setPgpSetAsSignature}
+          pgpBackupKeyMode={pgpBackupKeyMode}
+          onBackupKeyModeChange={setPgpBackupKeyMode}
+          configHint={isInitialized ? configModePassphraseHint(deviceType) : undefined}
+          onUsePassphrase={() => setClassicStep('Step8')}
+        />
       )}
 
       {classicStep === 'Step10' && (
@@ -845,114 +863,122 @@ const Setup: React.FC = () => {
         <FirmwareStep inputRef={firmwareInputRef} onFile={handleFirmware} />
       )}
 
-      {classicStep === 'Step1' && <StepNav showGuided onNext={startGuided} />}
+      {classicStep === 'Step1' && <StepNav isProcessing={isProcessing} isUninitialized={isUninitialized} showGuided onNext={startGuided} />}
 
       {classicStep === 'Step2' && (
-        <StepNav
+        <StepNav isProcessing={isProcessing} isUninitialized={isUninitialized}
           onNext={() =>
             run(async () => {
               if (!passcode1Disclaimer) throw new Error('Please accept the disclaimer.');
-              await device!.setPin();
-              if (guided) setClassicStep('Step3');
-              else resetToStep1();
+              await pinCommit('pin');
+              setClassicStep('Step3');
+              await pinPrompt('pin');
             })
           }
-          onCancel={resetToStep1}
+          onCancel={cancelSetupStep}
           nextDisabled={!passcode1Disclaimer}
         />
       )}
 
       {classicStep === 'Step3' && (
-        <StepNav
+        <StepNav isProcessing={isProcessing} isUninitialized={isUninitialized}
           onNext={() =>
             run(async () => {
-              await device!.setPin();
-              if (guided) setClassicStep('Step4');
-              else resetToStep1();
+              await pinCommit('pin');
+              if (guided) {
+                setClassicStep('Step4');
+                await pinPrompt('pin2');
+              } else {
+                goToLanding();
+              }
             })
           }
-          onCancel={resetToStep1}
+          onCancel={cancelSetupStep}
         />
       )}
 
       {classicStep === 'Step4' && (
-        <StepNav
+        <StepNav isProcessing={isProcessing} isUninitialized={isUninitialized}
           onNext={() =>
             run(async () => {
-              if (!isInitialized && !passcode3Disclaimer) throw new Error('Please accept the disclaimer.');
+              if (!passcode3Disclaimer) throw new Error('Please accept the disclaimer.');
               if (!isInitialized && advancedSetup) await device!.setSecProfileMode(secProfileMode);
-              await device!.setPin2();
-              if (guided) setClassicStep('Step5');
-              else resetToStep1();
+              await pinCommit('pin2');
+              setClassicStep('Step5');
+              await pinPrompt('pin2');
             })
           }
-          onCancel={resetToStep1}
-          nextDisabled={!isInitialized && !passcode3Disclaimer}
+          onCancel={cancelSetupStep}
+          nextDisabled={!passcode3Disclaimer}
         />
       )}
 
       {classicStep === 'Step5' && (
-        <StepNav
+        <StepNav isProcessing={isProcessing} isUninitialized={isUninitialized}
           onNext={() =>
             run(async () => {
-              await device!.setPin2();
-              if (guided) setClassicStep('Step6');
-              else resetToStep1();
+              await pinCommit('pin2');
+              if (guided) {
+                setClassicStep('Step6');
+                await pinPrompt('sdpin');
+              } else {
+                goToLanding();
+              }
             })
           }
-          onCancel={resetToStep1}
+          onCancel={cancelSetupStep}
         />
       )}
 
       {classicStep === 'Step6' && (
-        <StepNav
+        <StepNav isProcessing={isProcessing} isUninitialized={isUninitialized}
           onNext={() =>
             run(async () => {
               if (!passcode2Disclaimer && (isInitialized || guided)) {
                 throw new Error('Please accept the disclaimer.');
               }
-              await device!.setSDPin();
-              if (guided) setClassicStep('Step7');
-              else resetToStep1();
+              await pinCommit('sdpin');
+              setClassicStep('Step7');
+              await pinPrompt('sdpin');
             })
           }
-          onCancel={resetToStep1}
+          onCancel={cancelSetupStep}
           nextDisabled={!passcode2Disclaimer && (isInitialized || guided)}
         />
       )}
 
       {classicStep === 'Step7' && (
-        <StepNav
+        <StepNav isProcessing={isProcessing} isUninitialized={isUninitialized}
           onNext={() =>
             run(async () => {
-              await device!.setSDPin();
+              await pinCommit('sdpin');
               if (guided) setClassicStep('Step8');
-              else resetToStep1();
+              else goToLanding();
             })
           }
-          onCancel={resetToStep1}
+          onCancel={cancelSetupStep}
         />
       )}
 
       {classicStep === 'Step8' && (
-        <StepNav onNext={handleBackup} onCancel={resetToStep1} />
+        <StepNav isProcessing={isProcessing} isUninitialized={isUninitialized} onNext={handleBackup} onCancel={cancelSetupStep} />
       )}
 
       {classicStep === 'Step9' && (
-        <StepNav onNext={handlePgpImport} onCancel={resetToStep1} nextLabel="Next" />
+        <StepNav isProcessing={isProcessing} isUninitialized={isUninitialized} onNext={handlePgpImport} onCancel={cancelSetupStep} nextLabel="Next" />
       )}
 
       {classicStep === 'Step10' && (
-        <StepNav
+        <StepNav isProcessing={isProcessing} isUninitialized={isUninitialized}
           onNext={() => restoreInputRef.current?.click()}
-          onCancel={resetToStep1}
+          onCancel={cancelSetupStep}
         />
       )}
 
       {classicStep === 'Step11' && (
-        <StepNav
+        <StepNav isProcessing={isProcessing} isUninitialized={isUninitialized}
           onNext={() => firmwareInputRef.current?.click()}
-          onCancel={resetToStep1}
+          onCancel={cancelSetupStep}
           nextLabel="Load Firmware to OnlyKey"
         />
       )}
@@ -961,7 +987,7 @@ const Setup: React.FC = () => {
         open={showPgpKeySelect}
         candidates={pgpCandidates}
         onClose={() => setShowPgpKeySelect(false)}
-        onSelect={(candidateId, slot) => loadPgpBackupKey(candidateId, slot)}
+        onConfirm={(candidateId: string, slot: number) => loadPgpBackupKey(candidateId, slot)}
       />
     </SetupShell>
   );
@@ -977,6 +1003,7 @@ const BackupPassphraseStep: React.FC<{
   onPassphraseChange: (v: string) => void;
   onConfirmChange: (v: string) => void;
   configHint?: string;
+  onUsePgpKey?: () => void;
 }> = ({
   isInitialized,
   advancedSetup,
@@ -987,6 +1014,7 @@ const BackupPassphraseStep: React.FC<{
   onPassphraseChange,
   onConfirmChange,
   configHint,
+  onUsePgpKey,
 }) => (
   <div id="Step8">
     <h3>Enter a Backup Passphrase</h3>
@@ -1006,6 +1034,7 @@ const BackupPassphraseStep: React.FC<{
         onChange={(e) => onPassphraseChange(e.target.value)}
         className="field-input mt-1 block max-w-xl"
         autoComplete="new-password"
+        aria-label="Enter passphrase"
       />
       <span className="mt-1 block text-sm text-muted">Passphrase must be at least 25 characters</span>
     </label>
@@ -1018,6 +1047,7 @@ const BackupPassphraseStep: React.FC<{
         onChange={(e) => onConfirmChange(e.target.value)}
         className="field-input mt-1 block max-w-xl"
         autoComplete="new-password"
+        aria-label="Re-enter passphrase"
       />
     </label>
     {!isInitialized && advancedSetup && (
@@ -1049,6 +1079,128 @@ const BackupPassphraseStep: React.FC<{
       here
     </a>
     .
+    {onUsePgpKey && (
+      <>
+        <br />
+        <br />
+        <SetButton onClick={onUsePgpKey}>
+          <b>Use OpenPGP key instead of passphrase</b>
+        </SetButton>
+      </>
+    )}
+  </div>
+);
+
+const PgpBackupKeyStep: React.FC<{
+  pgpSlot: number;
+  onSlotChange: (v: number) => void;
+  pgpKey: string;
+  onKeyChange: (v: string) => void;
+  pgpPasscode: string;
+  onPasscodeChange: (v: string) => void;
+  pgpSetAsSignature: boolean;
+  onSetAsSignatureChange: (v: boolean) => void;
+  pgpBackupKeyMode: number;
+  onBackupKeyModeChange: (v: number) => void;
+  configHint?: string;
+  onUsePassphrase: () => void;
+}> = ({
+  pgpSlot,
+  onSlotChange,
+  pgpKey,
+  onKeyChange,
+  pgpPasscode,
+  onPasscodeChange,
+  pgpSetAsSignature,
+  onSetAsSignatureChange,
+  pgpBackupKeyMode,
+  onBackupKeyModeChange,
+  configHint,
+  onUsePassphrase,
+}) => (
+  <div id="Step9">
+    <h3>Set a Backup Key</h3>
+    {configHint && <p>{configHint}</p>}
+    <p>
+      Your OpenPGP key will be used for secure backup and restore of your OnlyKey, make sure to store it in a
+      secure location.
+    </p>
+    <p>
+      Need a key? Follow our guide{' '}
+      <a href="https://docs.crp.to/importpgp.html#generating-keys" target="_blank" rel="noreferrer">
+        here
+      </a>{' '}
+      for generating an OpenPGP key.
+    </p>
+    <label>
+      Slot:{' '}
+      <select
+        value={pgpSlot}
+        onChange={(e) => onSlotChange(parseInt(e.target.value, 10))}
+        className="field-input field-select-pref inline-block w-auto"
+      >
+        {BACKUP_RSA_SLOTS.map((s) => (
+          <option key={s.value} value={s.value}>{s.label}</option>
+        ))}
+      </select>
+    </label>
+    <br />
+    <br />
+    <label className="block">
+      Backup OpenPGP RSA/ECC Key:
+      <textarea
+        value={pgpKey}
+        onChange={(e) => onKeyChange(e.target.value)}
+        rows={3}
+        placeholder="OpenPGP Key -- paste PEM file contents"
+        className="field-input mt-1 font-mono text-sm w-full max-w-2xl"
+      />
+    </label>
+    <br />
+    <label className="block">
+      Passphrase:
+      <input
+        type="password"
+        value={pgpPasscode}
+        onChange={(e) => onPasscodeChange(e.target.value)}
+        className="field-input mt-1 block max-w-xl"
+        autoComplete="new-password"
+      />
+    </label>
+    <br />
+    <br />
+    <label>
+      <input
+        type="checkbox"
+        checked={pgpSetAsSignature}
+        onChange={(e) => onSetAsSignatureChange(e.target.checked)}
+      />{' '}
+      Set as signature key - Use key to sign messages
+    </label>
+    <br />
+    <br />
+    <label>
+      <input
+        type="radio"
+        checked={pgpBackupKeyMode === 0}
+        onChange={() => onBackupKeyModeChange(0)}
+      />{' '}
+      <u>Permit future backup key changes (Default)</u>
+    </label>
+    <br />
+    <label>
+      <input
+        type="radio"
+        checked={pgpBackupKeyMode === 1}
+        onChange={() => onBackupKeyModeChange(1)}
+      />{' '}
+      <u>Lock backup key on this device</u>
+    </label>
+    <br />
+    <br />
+    <SetButton onClick={onUsePassphrase}>
+      <b>Use passphrase instead of PGP key</b>
+    </SetButton>
   </div>
 );
 

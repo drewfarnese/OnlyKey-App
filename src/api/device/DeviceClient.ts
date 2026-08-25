@@ -1,9 +1,15 @@
-import type { EventEmitter } from 'events';
-import type { FieldID } from './types';
+import type { DeviceStatus, FieldID } from './types';
 import type { DeviceFilter } from '../transport/Transport.interface';
 
 /** Application-facing device API — UI and services depend on this, not OnlyKeyDevice. */
-export interface DeviceClient extends EventEmitter {
+export interface DeviceClient {
+  on(event: 'statusChange', listener: (state: DeviceStatus) => void): this;
+  on(event: 'error', listener: (error: string) => void): this;
+  on(event: 'labelUpdate', listener: (slotId: number, label: string) => void): this;
+  on(event: 'labelsRefreshed', listener: (labels: Map<number, string>) => void): this;
+  on(event: 'messageReceived', listener: (message: string) => void): this;
+  on(event: string, listener: (...args: unknown[]) => void): this;
+  emit(event: string, ...args: unknown[]): boolean;
   connect(filters: DeviceFilter | DeviceFilter[]): Promise<void>;
   disconnect(): Promise<void>;
   getLabels(): Promise<Map<number, string>>;
@@ -15,9 +21,12 @@ export interface DeviceClient extends EventEmitter {
     fields: Array<{ fieldId: FieldID; value: string | number[] }>
   ): Promise<void>;
   setPin(pin?: string): Promise<void>;
-  beginClassicPinEntry(): Promise<void>;
+  beginClassicPinEntry(which?: 'pin' | 'pin2' | 'sdpin', phase?: 'prompt' | 'commit'): Promise<void>;
+  cancelClassicPinEntry(which?: 'pin' | 'pin2' | 'sdpin'): Promise<void>;
   /** Probe lock state via OKSETTIME (INITIALIZED* vs UNLOCKED*). */
   refreshStatus(): Promise<void>;
+  /** Set the device clock (two OKSETTIME packets). Required after unlock for TOTP. */
+  setTime(timeoutMs?: number): Promise<void>;
   setPin2(): Promise<void>;
   setSDPin(): Promise<void>;
   sendPinDUO(pins: string[], setPin?: boolean): Promise<void>;

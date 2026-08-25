@@ -93,9 +93,9 @@ export class WebHidTransport implements TransportInterface {
         event.device.productName
       );
       this.requestDeviceFailed = false;
-      if (!this.device && this.deviceAddedCallback) {
-        this.deviceAddedCallback();
-      }
+      // Always notify. A stale device reference after a missed disconnect
+      // event must not swallow the next plug — the store reconnects if needed.
+      this.deviceAddedCallback?.();
     });
 
     hid.addEventListener('disconnect', (event) => {
