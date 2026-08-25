@@ -5,6 +5,7 @@ import { MessageID, FieldID, MESSAGE_HEADER, PACKET_SIZE, DeviceType, GLOBAL_SLO
 import { deviceTypeFromProductId, isDuoNoPinVersion } from './firmwareConstants';
 import {
   classicConfirmedByLabels,
+  hardwareTypeFromSuffix,
   inferDeviceTypeFromLabelSlotIds,
   maxLabelSlotId,
 } from './deviceTypeFromStatus';
@@ -19,9 +20,52 @@ export declare interface OnlyKeyDevice {
   on(event: 'messageReceived', listener: (message: string) => void): this;
 }
 
+const DUO_SETUP_PIN = /^[1-6]{7,10}$/;
+const DUO_PIN_SLOT_BYTES = 16;
+/** Connect-time OKSETTIME must fail fast — 10s×2 plus retry pinned Searching. */
+const CONNECT_SETTIME_TIMEOUT_MS = 2500;
+/** Lock-screen probes should not sit on INITIALIZED for the full 5s default. */
+const LOCK_STATUS_TIMEOUT_MS = 2500;
+export const PIN_ENTRY_CANCELLED = 'PIN entry cancelled';
+/** 5.6 last-message text after flushing a cancelled PIN keypad session. */
+export const PIN_ENTRY_CANCELED_MESSAGE = 'Canceled';
+const PIN_FLUSH_NOISE =
+  /error pin is not between|error pins don.?t match|enter your|re-enter your|successful pin|successfully set pin/i;
+
+/** Four big-endian unix-seconds bytes for OKSETTIME (firmware set_time reads buffer[5..8]). */
+export function encodeUnixTimeBytes(epochSec = Math.round(Date.now() / 1000)): Uint8Array {
+  const hex = (epochSec >>> 0).toString(16).padStart(8, '0').slice(-8);
+  const parts = hex.match(/.{2}/g);
+  if (!parts || parts.length !== 4) throw new Error('Failed to generate time parts');
+  return new Uint8Array(parts.map((p) => parseInt(p, 16)));
+}
+
+function padDuoPinSlot(pin: string): number[] {
+  const slot = new Array(DUO_PIN_SLOT_BYTES).fill(0);
+  for (let i = 0; i < pin.length && i < DUO_PIN_SLOT_BYTES; i++) {
+    slot[i] = 48 + Number(pin[i]);
+  }
+  return slot;
+}
+
+export function assertDuoSetupPins(primary: string, sd = ''): void {
+  if (!DUO_SETUP_PIN.test(primary)) {
+    throw new Error('Device PIN must be 7–10 digits using only 1–6.');
+  }
+  if (!sd) return;
+  if (!DUO_SETUP_PIN.test(sd)) {
+    throw new Error('Self-destruct PIN must be 7–10 digits using only 1–6.');
+  }
+  if (sd === primary) {
+    throw new Error('Self-destruct PIN must be different from the device PIN.');
+  }
+}
+
 export class OnlyKeyDevice extends TypedEmitter implements DeviceClient {
   private transport: TransportInterface;
+  private pendingSeq = 0;
   private pendingRequest: {
+    id: number;
     resolve: (res: DeviceResponse) => void;
     reject: (err: Error) => void;
     timer: NodeJS.Timeout;
@@ -30,8 +74,15 @@ export class OnlyKeyDevice extends TypedEmitter implements DeviceClient {
 
   private requestQueue: (() => Promise<void>)[] = [];
   private isProcessingQueue = false;
+  private queueEpoch = 0;
   private fetchingLabels = false;
   private lastLabelReceivedAt = 0;
+  private lastUnlockedAt = 0;
+  private statusProbe: Promise<void> | null = null;
+  /** Hide firmware PIN FSM chatter while cancelClassicPinEntry is flushing. */
+  private suppressPinMessages = false;
+  /** Bumped on each connect() and on unplug so in-flight connect/setTime cannot resume. */
+  private connectSeq = 0;
 
   public state = {
     isConnected: false,
@@ -58,26 +109,28 @@ export class OnlyKeyDevice extends TypedEmitter implements DeviceClient {
     });
   }
 
-  private abortPendingRequest(reason = 'Device disconnected', soft = false): void {
+  private abortPendingRequest(reason = 'Device disconnected'): void {
     if (!this.pendingRequest) return;
     clearTimeout(this.pendingRequest.timer);
-    const { resolve, reject } = this.pendingRequest;
+    const { reject } = this.pendingRequest;
     this.pendingRequest = null;
-    if (soft) {
-      // Soft-complete so in-flight awaits (e.g. getLabels during test teardown) do not
-      // surface as unhandled rejections.
-      resolve({ type: 'text', text: reason });
-    } else {
-      reject(new Error(reason));
-    }
+    reject(new Error(reason));
+  }
+
+  private isCurrentConnect(seq: number): boolean {
+    return seq === this.connectSeq && this.state.isConnected;
   }
 
   private resetDeviceState(): void {
-    this.abortPendingRequest('Device disconnected', true);
+    this.connectSeq += 1;
+    this.queueEpoch += 1;
+    this.abortPendingRequest('Device disconnected');
     this.requestQueue = [];
     this.isProcessingQueue = false;
     this.fetchingLabels = false;
     this.lastLabelReceivedAt = 0;
+    this.lastUnlockedAt = 0;
+    this.statusProbe = null;
     this.state = {
       isConnected: false,
       isLocked: true,
@@ -99,7 +152,11 @@ export class OnlyKeyDevice extends TypedEmitter implements DeviceClient {
     return !isDuoNoPinVersion(this.state.version);
   }
 
-  /** Legacy OnlyKeyComm.setDeviceType: set once per connection; never flip Classic ↔ DUO via status. */
+  /**
+   * Identify from UNKNOWN. Status/USB may switch Classic ↔ DUO (hot-plug).
+   * Labels must not: empty DUO profiles look like 12 Classic slots, and Classic
+   * HID `1a`–`1e` decode as slots 20–24.
+   */
   private applyDeviceTypeFromResponse(
     nextType: DeviceType | undefined,
     source = 'status',
@@ -108,10 +165,21 @@ export class OnlyKeyDevice extends TypedEmitter implements DeviceClient {
     const current = this.state.deviceType;
     if (current === nextType) return false;
 
+    const fromUsb = source.startsWith('usb:');
+    const fromStatus = source === 'status';
+    const suffixType = hardwareTypeFromSuffix(this.state.lastStatusText);
     const canSet =
       current === DeviceType.UNKNOWN ||
+      nextType === DeviceType.UNINITIALIZED ||
+      nextType === DeviceType.BOOTLOADER ||
       (current === DeviceType.UNINITIALIZED &&
-        (nextType === DeviceType.CLASSIC || nextType === DeviceType.DUO));
+        (nextType === DeviceType.CLASSIC || nextType === DeviceType.DUO)) ||
+      (current === DeviceType.CLASSIC &&
+        nextType === DeviceType.DUO &&
+        (fromStatus || fromUsb)) ||
+      (current === DeviceType.DUO &&
+        nextType === DeviceType.CLASSIC &&
+        (fromUsb || (fromStatus && suffixType === DeviceType.CLASSIC)));
 
     if (!canSet) return false;
 
@@ -121,20 +189,18 @@ export class OnlyKeyDevice extends TypedEmitter implements DeviceClient {
     return true;
   }
 
-  /** Label stream ended at slot 12 — correct a mistaken DUO classification. */
+  /** Idle 12-slot stream identifies Classic only when type is still unknown. */
   private setClassicFromLabels(source: string): boolean {
-    const current = this.state.deviceType;
-    if (current === DeviceType.CLASSIC) return false;
-    if (current !== DeviceType.DUO && current !== DeviceType.UNKNOWN) return false;
+    if (this.state.deviceType !== DeviceType.UNKNOWN) return false;
 
     this.state.deviceType = DeviceType.CLASSIC;
     this.state.deviceTypeSource = source;
-    console.log('OnlyKey device type corrected to classic via', source);
+    console.log('OnlyKey device type set: classic via', source);
     return true;
   }
 
   private inferDeviceTypeFromLabels(endedByIdle: boolean): boolean {
-    const slotIds = this.state.labels.keys();
+    const slotIds = [...this.state.labels.keys()];
     this.state.maxLabelSlot = maxLabelSlotId(slotIds);
 
     const duoFromSlots = inferDeviceTypeFromLabelSlotIds(slotIds);
@@ -155,6 +221,10 @@ export class OnlyKeyDevice extends TypedEmitter implements DeviceClient {
     this.state.usbProductId = info.productId;
     const fromPid = deviceTypeFromProductId(info.productId);
     if (fromPid) this.applyDeviceTypeFromResponse(fromPid, `usb:0x${info.productId.toString(16)}`);
+    if (fromPid === DeviceType.BOOTLOADER) {
+      this.state.isBootloader = true;
+      this.state.isLocked = false;
+    }
   }
 
   private static formatDeviceLockedError(message: string): string {
@@ -179,22 +249,27 @@ export class OnlyKeyDevice extends TypedEmitter implements DeviceClient {
   private async processQueue() {
     if (this.isProcessingQueue || this.requestQueue.length === 0) return;
     this.isProcessingQueue = true;
-    while (this.requestQueue.length > 0) {
+    const epoch = this.queueEpoch;
+    while (this.requestQueue.length > 0 && epoch === this.queueEpoch) {
       const task = this.requestQueue.shift();
       if (task) {
         try {
           await task();
         } catch (e) {
-          console.error('Queue task failed:', e);
+          const msg = e instanceof Error ? e.message : String(e);
+          if (msg !== PIN_ENTRY_CANCELLED) {
+            console.error('Queue task failed:', e);
+          }
         }
       }
     }
-    this.isProcessingQueue = false;
+    if (epoch === this.queueEpoch) this.isProcessingQueue = false;
   }
 
   private recordReceivedMessage(response: DeviceResponse): void {
     const msg = (response.error || response.text || '').trim();
     if (msg.length > 1 && msg !== 'OK') {
+      if (this.suppressPinMessages && PIN_FLUSH_NOISE.test(msg)) return;
       this.emit('messageReceived', msg);
     }
   }
@@ -213,15 +288,22 @@ export class OnlyKeyDevice extends TypedEmitter implements DeviceClient {
       // Explicit unlock/lock from firmware status strings. Do not rely solely on
       // response.isLocked — defensive for any parser edge cases.
       if (text.includes('UNLOCKED')) {
+        this.lastUnlockedAt = Date.now();
+        const justUnlocked = this.state.isLocked;
         if (this.state.isLocked) {
           this.state.isLocked = false;
           stateChanged = true;
         }
-        if (this.state.isConfigMode && !text.includes('INITIALIZED')) {
-          // Normal unlock leaves config mode; config-mode entry uses INITIALIZED.
-          this.state.isConfigMode = false;
-          stateChanged = true;
+        // Firmware ignores OKSETTIME while locked (no recvmsg). 5.6 called
+        // setTime after UNLOCKED so TOTP has a clock. refreshStatus is only a
+        // lock probe — it must not stand in for this post-unlock setTime.
+        if (justUnlocked && !this.state.isBootloader) {
+          void this.setTime().catch(() => {
+            /* unplug during setTime */
+          });
         }
+        // 5.6 keeps isConfigMode through UNLOCKED — firmware set_time still
+        // prints UNLOCKED while configmode is true (red LED).
       }
 
       if (text.includes('INITIALIZED-D')) {
@@ -243,19 +325,28 @@ export class OnlyKeyDevice extends TypedEmitter implements DeviceClient {
         !text.includes('UNLOCKED')
       ) {
         // Classic locked (or unlocked→config). Never match inside UNLOCKED*.
-        if (!this.state.isLocked) {
-          this.state.isLocked = true;
-          stateChanged = true;
-        }
-        if (!wasLocked && this.state.deviceType === DeviceType.CLASSIC) {
-          this.state.isConfigMode = true;
-          stateChanged = true;
+        // Ignore INITIALIZED that arrives just after keypad unlock — leftover
+        // OKSETTIME replies from probes sent while the device was still locked.
+        const staleLockEcho = Date.now() - this.lastUnlockedAt < 2500;
+        if (!staleLockEcho) {
+          if (!this.state.isLocked) {
+            this.state.isLocked = true;
+            stateChanged = true;
+          }
+          if (!wasLocked && this.state.deviceType === DeviceType.CLASSIC) {
+            this.state.isConfigMode = true;
+            stateChanged = true;
+          }
         }
       }
 
       if (response.isLocked !== undefined && this.state.isLocked !== response.isLocked) {
-        this.state.isLocked = response.isLocked;
-        stateChanged = true;
+        const staleLockEcho =
+          response.isLocked === true && Date.now() - this.lastUnlockedAt < 2500;
+        if (!staleLockEcho) {
+          this.state.isLocked = response.isLocked;
+          stateChanged = true;
+        }
       }
       this.state.lastStatusText = text;
       if (this.applyDeviceTypeFromResponse(response.deviceType, 'status')) {
@@ -271,9 +362,15 @@ export class OnlyKeyDevice extends TypedEmitter implements DeviceClient {
         this.state.devicePinSet = pinSet;
         stateChanged = true;
       }
-      if (text.includes('BOOTLOADER') && !this.state.isBootloader) {
-        this.state.isBootloader = true;
-        stateChanged = true;
+      if (text.includes('BOOTLOADER') || response.deviceType === DeviceType.BOOTLOADER) {
+        if (!this.state.isBootloader) {
+          this.state.isBootloader = true;
+          stateChanged = true;
+        }
+        if (this.state.isLocked) {
+          this.state.isLocked = false;
+          stateChanged = true;
+        }
       }
     }
 
@@ -306,7 +403,10 @@ export class OnlyKeyDevice extends TypedEmitter implements DeviceClient {
     }
 
     if (response.type === 'error') {
-      this.emit('error', response.error || 'Unknown device error');
+      const errText = response.error || 'Unknown device error';
+      if (!(this.suppressPinMessages && PIN_FLUSH_NOISE.test(errText))) {
+        this.emit('error', errText);
+      }
     }
 
     // Finally resolve or reject the promise
@@ -328,20 +428,26 @@ export class OnlyKeyDevice extends TypedEmitter implements DeviceClient {
     
     return new Promise((resolve, reject) => {
       this.requestQueue.push(async () => {
+        if (!this.state.isConnected) {
+          reject(new Error('Device disconnected'));
+          return;
+        }
         const packet = this.buildMessage(msgId, slotId, fieldId, data);
         
         try {
           await new Promise<DeviceResponse>((res, rej) => {
+            const id = ++this.pendingSeq;
             const timer = setTimeout(() => {
-              if (this.pendingRequest) {
+              if (this.pendingRequest?.id === id) {
                 this.pendingRequest = null;
                 rej(new Error(`Request ${MessageID[msgId]} timed out after ${timeoutMs}ms`));
               }
             }, timeoutMs);
 
-            this.pendingRequest = { resolve: res, reject: rej, timer, matchPredicate };
+            this.pendingRequest = { id, resolve: res, reject: rej, timer, matchPredicate };
             
             this.transport.send(0, packet).catch(err => {
+              if (this.pendingRequest?.id !== id) return;
               clearTimeout(timer);
               this.pendingRequest = null;
               rej(err);
@@ -404,15 +510,18 @@ export class OnlyKeyDevice extends TypedEmitter implements DeviceClient {
       this.requestQueue.push(async () => {
         try {
           await new Promise<void>((res, rej) => {
+            const id = ++this.pendingSeq;
             const timer = setTimeout(() => {
-              if (this.pendingRequest) {
+              if (this.pendingRequest?.id === id) {
                 this.pendingRequest = null;
+                res();
               }
-              res();
             }, errorWindowMs);
 
             this.pendingRequest = {
+              id,
               resolve: () => {
+                if (this.pendingRequest?.id !== id) return;
                 clearTimeout(timer);
                 this.pendingRequest = null;
                 res();
@@ -424,6 +533,7 @@ export class OnlyKeyDevice extends TypedEmitter implements DeviceClient {
 
             const packet = this.buildMessage(msgId, slotId, fieldId, data);
             this.transport.send(0, packet).catch((err) => {
+              if (this.pendingRequest?.id !== id) return;
               clearTimeout(timer);
               this.pendingRequest = null;
               rej(err);
@@ -454,14 +564,16 @@ export class OnlyKeyDevice extends TypedEmitter implements DeviceClient {
       this.requestQueue.push(async () => {
         try {
           await new Promise<DeviceResponse>((res, rej) => {
+            const id = ++this.pendingSeq;
             const timer = setTimeout(() => {
-              if (this.pendingRequest) {
+              if (this.pendingRequest?.id === id) {
                 this.pendingRequest = null;
                 rej(new Error(`Timed out waiting for message containing "${successText}"`));
               }
             }, timeoutMs);
 
             this.pendingRequest = {
+              id,
               resolve: res,
               reject: rej,
               timer,
@@ -471,6 +583,7 @@ export class OnlyKeyDevice extends TypedEmitter implements DeviceClient {
 
             const packet = this.buildMessage(msgId, slotId, fieldId, data);
             this.transport.send(0, packet).catch((err) => {
+              if (this.pendingRequest?.id !== id) return;
               clearTimeout(timer);
               this.pendingRequest = null;
               rej(err);
@@ -490,12 +603,16 @@ export class OnlyKeyDevice extends TypedEmitter implements DeviceClient {
       this.requestQueue.push(async () => {
         try {
           await new Promise<DeviceResponse>((res, rej) => {
+            const id = ++this.pendingSeq;
             const timer = setTimeout(() => {
-              this.pendingRequest = null;
-              rej(new Error(`Timed out waiting for message containing "${str}"`));
+              if (this.pendingRequest?.id === id) {
+                this.pendingRequest = null;
+                rej(new Error(`Timed out waiting for message containing "${str}"`));
+              }
             }, timeoutMs);
 
             this.pendingRequest = {
+              id,
               resolve: res,
               reject: rej,
               timer,
@@ -513,11 +630,50 @@ export class OnlyKeyDevice extends TypedEmitter implements DeviceClient {
   // --- PUBLIC API ---
 
   public async connect(filters: any): Promise<void> {
-    await this.transport.connect(filters);
+    const seq = ++this.connectSeq;
+    this.queueEpoch += 1;
+    this.requestQueue = [];
+    this.isProcessingQueue = false;
+    this.abortPendingRequest('Device disconnected');
+
+    // Each HID connection is a possibly different OnlyKey. Drop the previous
+    // type so a DUO unplug + Classic plug cannot keep DUO after unlock.
+    this.state.deviceType = DeviceType.UNKNOWN;
+    this.state.deviceTypeSource = '';
+    this.state.version = '';
+    this.state.maxLabelSlot = 0;
+    this.state.labels = new Map();
+    this.state.lastStatusText = '';
+    this.state.isLocked = true;
+    this.state.isConfigMode = false;
+    this.state.isBootloader = false;
+
+    try {
+      await this.transport.connect(filters);
+    } catch (e) {
+      if (seq !== this.connectSeq) throw new Error('Device disconnected', { cause: e });
+      throw e;
+    }
+    if (seq !== this.connectSeq) {
+      throw new Error('Device disconnected');
+    }
+
     this.state.isConnected = true;
     this.seedDeviceTypeFromTransport();
+    // Emit now only if firmware already replied during transport.connect so the
+    // store is not left on Searching. Do not invent a locked snapshot when no
+    // status has arrived — rapid replug delivers UNLOCKED a beat later.
+    if (this.state.lastStatusText || this.state.isBootloader) {
+      this.emit('statusChange', { ...this.state });
+    }
+    // Bootloader has no clock and OKSETTIME waiters steal OKFWUPDATE replies.
+    if (!this.state.isBootloader) {
+      await this.setTime(CONNECT_SETTIME_TIMEOUT_MS);
+    }
+    if (!this.isCurrentConnect(seq)) {
+      throw new Error('Device disconnected');
+    }
     this.emit('statusChange', { ...this.state });
-    await this.setTime();
   }
 
   public async disconnect(): Promise<void> {
@@ -526,16 +682,13 @@ export class OnlyKeyDevice extends TypedEmitter implements DeviceClient {
     this.emit('statusChange', { ...this.state });
   }
 
-  public async setTime(): Promise<void> {
-     const currentEpochTime = Math.round(new Date().getTime() / 1000.0).toString(16);
-     const timeParts = currentEpochTime.match(/.{2}/g);
-     if (!timeParts) throw new Error("Failed to generate time parts");
-
-     const bytes = new Uint8Array(timeParts.map(p => parseInt(p, 16)));
-     // Send twice
-     await this.sendRequest(MessageID.OKSETTIME, undefined, undefined, bytes);
+  public async setTime(timeoutMs = 10000): Promise<void> {
+     const bytes = encodeUnixTimeBytes();
+     // Send twice — firmware historically needs two OKSETTIME packets.
+     await this.sendRequest(MessageID.OKSETTIME, undefined, undefined, bytes, timeoutMs, OnlyKeyDevice.isFirmwareStatus);
      await new Promise(r => setTimeout(r, 100));
-     await this.sendRequest(MessageID.OKSETTIME, undefined, undefined, bytes);
+     if (!this.state.isConnected) throw new Error('Device disconnected');
+     await this.sendRequest(MessageID.OKSETTIME, undefined, undefined, bytes, timeoutMs, OnlyKeyDevice.isFirmwareStatus);
   }
 
   /**
@@ -544,11 +697,44 @@ export class OnlyKeyDevice extends TypedEmitter implements DeviceClient {
    * (and ignores) OKSETPIN once initialized; unlock is entirely on-device.
    */
   public async refreshStatus(): Promise<void> {
-    const currentEpochTime = Math.round(new Date().getTime() / 1000.0).toString(16);
-    const timeParts = currentEpochTime.match(/.{2}/g);
-    if (!timeParts) throw new Error('Failed to generate time parts');
-    const bytes = new Uint8Array(timeParts.map((p) => parseInt(p, 16)));
-    await this.sendRequest(MessageID.OKSETTIME, undefined, undefined, bytes, 5000);
+    if (this.statusProbe) return this.statusProbe;
+    this.statusProbe = this.sendStatusProbe().finally(() => {
+      this.statusProbe = null;
+    });
+    return this.statusProbe;
+  }
+
+  private async sendStatusProbe(): Promise<void> {
+    const bytes = encodeUnixTimeBytes();
+    // While locked, firmware may print INITIALIZED unsolicited (and set_time is
+    // silent until the PIN is entered). Completing the waiter on INITIALIZED
+    // makes the lock screen think the probe finished while the key is still
+    // locked — including after a config-mode PIN, which never prints UNLOCKED.
+    const match = this.state.isLocked
+      ? OnlyKeyDevice.isUnlockStatus
+      : OnlyKeyDevice.isFirmwareStatus;
+    const timeoutMs = this.state.isLocked ? LOCK_STATUS_TIMEOUT_MS : 5000;
+    await this.sendRequest(MessageID.OKSETTIME, undefined, undefined, bytes, timeoutMs, match);
+  }
+
+  private static isFirmwareStatus(res: DeviceResponse): boolean {
+    const text = res.text ?? '';
+    return (
+      res.type === 'status' ||
+      text.includes('UNLOCKED') ||
+      text.includes('INITIALIZED') ||
+      text.includes('BOOTLOADER')
+    );
+  }
+
+  /** Lock-poll: ignore INITIALIZED* so leftover locked reports cannot complete the waiter. */
+  private static isUnlockStatus(res: DeviceResponse): boolean {
+    const text = res.text ?? '';
+    return (
+      text.includes('UNLOCKED') ||
+      text.includes('UNINITIALIZED') ||
+      text.includes('BOOTLOADER')
+    );
   }
 
   public async getLabels(): Promise<Map<number, string>> {
@@ -556,28 +742,33 @@ export class OnlyKeyDevice extends TypedEmitter implements DeviceClient {
     this.lastLabelReceivedAt = Date.now();
     this.state.labels.clear();
 
-    await this.sendRequest(MessageID.OKGETLABELS, undefined, undefined, undefined, 5000);
+    try {
+      await this.sendRequest(MessageID.OKGETLABELS, undefined, undefined, undefined, 5000);
 
-    // Firmware streams one label per HID packet; finish after idle gap (v5 listens until stream ends).
-    const maxWaitMs = 5000;
-    const idleMs = 400;
-    const started = Date.now();
-    let endedByIdle = false;
-    while (Date.now() - started < maxWaitMs) {
-      await new Promise((r) => setTimeout(r, 50));
-      if (this.state.labels.size > 0 && Date.now() - this.lastLabelReceivedAt >= idleMs) {
-        endedByIdle = true;
-        break;
+      // Firmware streams one label per HID packet; finish after idle gap (v5 listens until stream ends).
+      const maxWaitMs = 5000;
+      const idleMs = 400;
+      const started = Date.now();
+      let endedByIdle = false;
+      while (this.state.isConnected && Date.now() - started < maxWaitMs) {
+        await new Promise((r) => setTimeout(r, 50));
+        if (!this.state.isConnected) break;
+        if (this.state.labels.size > 0 && Date.now() - this.lastLabelReceivedAt >= idleMs) {
+          endedByIdle = true;
+          break;
+        }
       }
-    }
 
-    this.fetchingLabels = false;
-    if (this.inferDeviceTypeFromLabels(endedByIdle)) {
-      this.emit('statusChange', { ...this.state });
+      if (this.state.isConnected && this.inferDeviceTypeFromLabels(endedByIdle)) {
+        this.emit('statusChange', { ...this.state });
+      }
+      if (this.state.isConnected) {
+        this.emit('labelsRefreshed', new Map(this.state.labels));
+      }
+      return this.state.labels;
+    } finally {
+      this.fetchingLabels = false;
     }
-    this.emit('labelsRefreshed', new Map(this.state.labels));
-
-    return this.state.labels;
   }
 
   public async setSlot(slotId: number, fieldId: FieldID, value: string | number[]): Promise<void> {
@@ -599,24 +790,69 @@ export class OnlyKeyDevice extends TypedEmitter implements DeviceClient {
   }
 
   /**
-   * Classic OnlyKey PIN *setup* (first-use / config): send empty OKSETPIN and wait
-   * for hardware button entry confirmation. NOT used for normal unlock — once
-   * initialized, firmware ignores OKSETPIN unless in config mode; unlock is
-   * keypad-only and reported via OKSETTIME / unsolicited UNLOCKED.
+   * Classic PIN setup: empty OKSETPIN/PIN2/SDPIN. `prompt` matches "enter your PIN";
+   * `commit` matches "Successful PIN entry". Firmware is a four-message state machine.
    */
-  public async beginClassicPinEntry(): Promise<void> {
+  public async beginClassicPinEntry(
+    which: 'pin' | 'pin2' | 'sdpin' = 'pin',
+    phase: 'prompt' | 'commit' = 'prompt',
+  ): Promise<void> {
+    const msgId = OnlyKeyDevice.classicPinMessageId(which);
     const res = await this.sendRequest(
-      MessageID.OKSETPIN,
+      msgId,
       undefined,
       undefined,
       undefined,
       300000,
-      (r) =>
-        (r.text?.includes('UNLOCKED') ?? false) ||
-        (r.text?.toLowerCase().includes('successful pin') ?? false) ||
-        r.type === 'error'
+      (r) => {
+        const text = (r.text ?? '').toLowerCase();
+        if (r.type === 'error') return true;
+        if (phase === 'prompt') {
+          // Firmware: "enter your PIN" / "enter your self-destruct PIN" / "re-enter your PIN".
+          return (text.includes('enter your') && text.includes('pin')) || text.includes('re-enter');
+        }
+        return text.includes('successful pin') || text.includes('successfully set pin');
+      }
     );
     if (res.type === 'error') throw new Error(res.error);
+  }
+
+  /**
+   * Abort an in-flight PIN waiter and send one empty OKSETPIN* so firmware
+   * resets `pin_set` (5.6 `flushMessage`). Without this, Cancel leaves the
+   * keypad FSM waiting and the next Change PIN can hang on "Please wait…".
+   */
+  public async cancelClassicPinEntry(
+    which: 'pin' | 'pin2' | 'sdpin' = 'pin',
+  ): Promise<void> {
+    this.abortPendingRequest(PIN_ENTRY_CANCELLED);
+    const msgId = OnlyKeyDevice.classicPinMessageId(which);
+    this.suppressPinMessages = true;
+    try {
+      await this.sendRequest(
+        msgId,
+        undefined,
+        undefined,
+        undefined,
+        1500,
+        (r) => r.type === 'error' || !!(r.text && r.text.length > 1),
+      );
+    } catch {
+      // Timeout or cancel is the flush succeeding — firmware may stay silent.
+    } finally {
+      this.suppressPinMessages = false;
+    }
+    if (this.state.isConnected) {
+      this.emit('messageReceived', PIN_ENTRY_CANCELED_MESSAGE);
+    }
+  }
+
+  private static classicPinMessageId(which: 'pin' | 'pin2' | 'sdpin'): MessageID {
+    return which === 'pin2'
+      ? MessageID.OKSETPIN2
+      : which === 'sdpin'
+        ? MessageID.OKSETSDPIN
+        : MessageID.OKSETPIN;
   }
 
   public async setPin2(): Promise<void> {
@@ -630,23 +866,49 @@ export class OnlyKeyDevice extends TypedEmitter implements DeviceClient {
   }
 
   public async sendPinDUO(pins: string[], setPin: boolean = true): Promise<void> {
-    const pinCount = pins.length;
-    const bytesPerPin = 16;
-    const pinBytesLength = pinCount === 1 ? pins[0].length : pinCount * bytesPerPin;
-    const pinBytes: number[] = new Array(pinBytesLength).fill(0);
-
-    pins.forEach((pin, i) => {
-      pin.split('').forEach((char, j) => {
-        pinBytes[i * bytesPerPin + j] = 48 + Number(char);
-      });
-    });
-
+    let pinBytes: number[];
     if (setPin) {
-      pinBytes.unshift(255);
+      const primary = pins[0] ?? '';
+      const pin2 = pins.length >= 3 ? (pins[1] ?? '') : '';
+      const sd = pins.length >= 3 ? (pins[2] ?? '') : (pins[1] ?? '');
+      assertDuoSetupPins(primary, sd);
+      // SETUP_MANUAL: 0xFF + primary@6 + PIN2@22 + SD@38 (okcore_quick_setup).
+      pinBytes = [255, ...padDuoPinSlot(primary), ...padDuoPinSlot(pin2), ...padDuoPinSlot(sd)];
+    } else {
+      const pin = pins[0] ?? '';
+      pinBytes = pin.split('').map((char) => 48 + Number(char));
     }
 
-    const res = await this.sendRequest(MessageID.OKSETPIN, undefined, undefined, pinBytes);
+    const res = await this.sendRequest(
+      MessageID.OKSETPIN,
+      undefined,
+      undefined,
+      pinBytes,
+      10000,
+      setPin
+        ? undefined
+        : (r) => {
+            const t = `${r.text ?? ''} ${r.error ?? ''}`.toLowerCase();
+            return (
+              r.type === 'error' ||
+              t.includes('unlocked') ||
+              t.includes('initialized-d') ||
+              t.includes('incorrect') ||
+              t.includes('password attempts')
+            );
+          },
+    );
     if (res.type === 'error') throw new Error(res.error);
+    if (!setPin) {
+      const t = `${res.text ?? ''} ${res.error ?? ''}`;
+      if (/initialized-d/i.test(t) || /incorrect/i.test(t) || /password attempts/i.test(t)) {
+        const msg = /password attempts/i.test(t)
+          ? 'Error password attempts for this session exceeded'
+          : 'Incorrect PIN';
+        this.emit('error', msg);
+        throw new Error(msg);
+      }
+    }
   }
 
   public async setBackupPassphrase(passphrase: string): Promise<void> {
@@ -685,11 +947,19 @@ export class OnlyKeyDevice extends TypedEmitter implements DeviceClient {
       bytes = Array.from(key);
     }
 
-    // Chunked sending for RSA keys
+    // Firmware replies on the final OKSETPRIV chunk only (same class of
+    // behavior as OKRESTORE). Waiting on intermediates 10s-timeouts RSA-4096.
     const maxPacketSize = 57;
     for (let i = 0; i < bytes.length; i += maxPacketSize) {
       const chunk = bytes.slice(i, i + maxPacketSize);
-      await this.sendRequest(MessageID.OKSETPRIV, slot, type, chunk);
+      const isFinal = i + maxPacketSize >= bytes.length;
+      if (!isFinal) {
+        await this.sendCommandWithoutConfirmation(MessageID.OKSETPRIV, slot, type, chunk, 200);
+        await new Promise((r) => setTimeout(r, 30));
+        continue;
+      }
+      const res = await this.sendRequest(MessageID.OKSETPRIV, slot, type, chunk);
+      if (res.type === 'error') throw new Error(res.error);
     }
   }
 
@@ -775,11 +1045,12 @@ export class OnlyKeyDevice extends TypedEmitter implements DeviceClient {
         },
       );
 
-      if (res.type === 'error' || (res.error && /error/i.test(res.error))) {
+      const t = `${res.text ?? ''} ${res.error ?? ''}`.toLowerCase();
+      if (res.type === 'error' || /error/i.test(t)) {
         throw new Error(OnlyKeyDevice.formatDeviceLockedError(res.error || res.text || 'Restore failed'));
       }
-      if (res.text && /error/i.test(res.text)) {
-        throw new Error(OnlyKeyDevice.formatDeviceLockedError(res.text));
+      if (!t.includes('successfully loaded backup') && !t.includes('remove and reinsert')) {
+        throw new Error(res.text || 'Restore failed');
       }
       reportProgress('apply');
     }
@@ -897,26 +1168,57 @@ export class OnlyKeyDevice extends TypedEmitter implements DeviceClient {
   }
 
   public async loadFirmwareBlocks(blocks: string[], onProgress?: (pct: number) => void): Promise<void> {
+    if (!this.state.isBootloader) {
+      throw new Error('Device is not in bootloader.');
+    }
+    const maxPacketSize = 57;
     for (let i = 0; i < blocks.length; i++) {
-      const block = blocks[i];
-      const bytes = hexStringToByteArray(block);
-      const maxPacketSize = 57;
+      const bytes = hexStringToByteArray(blocks[i]);
+      const isLastBlock = i === blocks.length - 1;
+      const successText = isLastBlock ? 'SUCCESSFULLY LOADED FW' : 'NEXT BLOCK';
 
       for (let j = 0; j < bytes.length; j += maxPacketSize) {
         const chunk = bytes.slice(j, j + maxPacketSize);
-        const isFinalChunk = (j + maxPacketSize) >= bytes.length;
-        const packetHeader = isFinalChunk ? (chunk.length).toString(16) : 'FF';
-        await this.sendRequest(MessageID.OKFWUPDATE, parseInt(packetHeader, 16), undefined, chunk, 10000,
-          (r) => r.text?.includes('RECEIVED OKFWUPDATE') ?? false);
+        const isFinalChunk = j + maxPacketSize >= bytes.length;
+        if (!isFinalChunk) {
+          // 5.6 submitFirmwareData waits for RECEIVED OKFWUPDATE on every 57-byte chunk.
+          const res = await this.sendRequest(
+            MessageID.OKFWUPDATE,
+            0xff,
+            undefined,
+            chunk,
+            10_000,
+            (r) => {
+              const t = `${r.text ?? ''} ${r.error ?? ''}`.toLowerCase();
+              return r.type === 'error' || t.includes('received okfwupdate') || t.includes('error');
+            },
+          );
+          const ack = `${res.text ?? ''} ${res.error ?? ''}`.toLowerCase();
+          // Soft-complete on unplug resolves with "Device disconnected" — that is not an ACK.
+          if (res.type === 'error' || ack.includes('error') || !ack.includes('received okfwupdate')) {
+            throw new Error(res.error || res.text || 'Firmware load failed');
+          }
+          continue;
+        }
+        // Do not match RECEIVED here — that would consume the ACK and drop NEXT BLOCK.
+        const res = await this.sendRequest(
+          MessageID.OKFWUPDATE,
+          chunk.length,
+          undefined,
+          chunk,
+          20_000,
+          (r) => {
+            const t = `${r.text ?? ''} ${r.error ?? ''}`.toLowerCase();
+            return t.includes(successText.toLowerCase()) || r.type === 'error' || t.includes('error');
+          },
+        );
+        const t = `${res.text ?? ''} ${res.error ?? ''}`.toLowerCase();
+        if (res.type === 'error' || t.includes('error') || !t.includes(successText.toLowerCase())) {
+          throw new Error(res.error || res.text || 'Firmware load failed');
+        }
       }
 
       onProgress?.(Math.round(((i + 1) / blocks.length) * 100));
-
-      if (i < blocks.length - 1) {
-        await this.waitForMessage('NEXT BLOCK');
-      } else {
-        await this.waitForMessage('SUCCESSFULLY LOADED FW');
-      }
     }
   }
 }

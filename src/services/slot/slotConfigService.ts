@@ -1,5 +1,6 @@
 import type { DeviceClient } from '../../api/device/DeviceClient';
 import { FieldID, DeviceType } from '../../api/device/types';
+import { MFA_TYPE_GOOGLE_AUTH, MFA_TYPE_YUBI_OTP } from '../../api/device/firmwareConstants';
 import { base32ToHex } from '../../utils/base32';
 import { hexToModhex } from '../../api/device/utils';
 
@@ -91,15 +92,22 @@ export async function saveSlotConfig(
   }
 
   if (settingTotp) {
-    await device.setSlot(slotId, FieldID.TFATYPE, '1');
     const hex = base32ToHex(form.totpSecret.replace(/\s/g, ''));
     const bytes = hex.match(/.{2}/g)?.map((h) => parseInt(h, 16)) || [];
+    // HID OKSETSLOT payload is 57 bytes. A longer secret is silently truncated
+    // on the wire and TOTP will never match an authenticator using the full key.
+    if (bytes.length > 57) {
+      throw new Error(
+        `TOTP secret is too long for OnlyKey (${bytes.length} bytes). Maximum is 57 bytes (91 Base32 characters).`,
+      );
+    }
+    await device.setSlot(slotId, FieldID.TFATYPE, MFA_TYPE_GOOGLE_AUTH);
     await device.setSlot(slotId, FieldID.TFAUSERNAME, bytes);
   } else if (settingYubi) {
     if (!form.yubiPublicId || !form.yubiPrivateId || !form.yubiSecretKey) {
       throw new Error('Yubikey public ID, private ID, and secret cannot be blank.');
     }
-    await device.setSlot(slotId, FieldID.TFATYPE, '2');
+    await device.setSlot(slotId, FieldID.TFATYPE, MFA_TYPE_YUBI_OTP);
     const pubId = hexToModhex(form.yubiPublicId.replace(/\s/g, '').slice(0, 32), true);
     const privId = form.yubiPrivateId.replace(/\s/g, '').slice(0, 12);
     const secKey = form.yubiSecretKey.replace(/\s/g, '').slice(0, 32);

@@ -1,5 +1,8 @@
+type ChromeHid = { hid?: { getDevices?: unknown } };
+
 export function getHidStatus(): { available: boolean; hint: string } {
-  const chromeHid = typeof chrome !== 'undefined' && !!chrome.hid?.getDevices;
+  const chromeApi = (globalThis as typeof globalThis & { chrome?: ChromeHid }).chrome;
+  const chromeHid = !!chromeApi?.hid?.getDevices;
   const webHid =
     typeof navigator !== 'undefined' && !!(navigator as { hid?: unknown }).hid;
 

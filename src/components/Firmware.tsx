@@ -5,6 +5,7 @@ import { clearPendingFirmware, storePendingFirmware } from '../desktop/firmwareC
 import { fetchLatestFirmwareRelease } from '../desktop/firmwareDownload';
 import { DeviceType } from '../api/device/types';
 import { TOOLTIPS } from '../data/tooltips';
+import ConfigModeInstructions from './ConfigModeInstructions';
 import { SetButton, StepFieldset } from './ui/forms';
 import { HelpTip } from './ui/HelpTip';
 
@@ -17,14 +18,17 @@ const Firmware: React.FC = () => {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
 
-  const isDuo = deviceType === DeviceType.DUO;
   const isUninitialized = deviceType === DeviceType.UNINITIALIZED;
+  const canLoadFirmware = isBootloader || isUninitialized || fwUpdateSupport;
 
   const applyFirmwareBlocks = async (blocks: string[]) => {
     if (!device) return;
 
     if (isBootloader) {
-      storePendingFirmware(blocks);
+      // Already in bootloader: load now. Do not persist pending — that is only
+      // for the kick → reconnect gap. Leftover pending would reflash on the next
+      // bootloader PID.
+      clearPendingFirmware();
       setStatus('Sending firmware blocks...');
       await device.loadFirmwareBlocks(blocks, setProgress);
       setStatus('Firmware load complete!');
@@ -96,14 +100,7 @@ const Firmware: React.FC = () => {
       return (
         <div className="space-y-2 text-secondary">
           <p>
-            <u>Step 1</u>.{' '}
-            {isDuo ? (
-              <>Hold down button #1 on your OnlyKey DUO for 10+ seconds and release.</>
-            ) : (
-              <>Hold down button #6 on your OnlyKey for 5+ seconds and release.</>
-            )}{' '}
-            The light will turn off. If a PIN was previously set, re-enter the PIN to enter config mode. You will notice
-            the OnlyKey flashes red in config mode.
+            <u>Step 1</u>. <ConfigModeInstructions inline />
           </p>
           <p>
             <u>Step 2</u>. Click [Choose File], select your firmware file, then click [Load Firmware to OnlyKey].
@@ -142,7 +139,7 @@ const Firmware: React.FC = () => {
         ref={fileInputRef}
         type="file"
         accept=".okfw,.txt,.hex"
-        disabled={isLoading || (!fwUpdateSupport && !isUninitialized)}
+        disabled={isLoading || !canLoadFirmware}
         onChange={(e) => setSelectedFile(e.target.files?.[0] ?? null)}
         className="ok-file-input"
       />
@@ -150,11 +147,11 @@ const Firmware: React.FC = () => {
       <div className="flex flex-wrap gap-2">
         <SetButton
           onClick={handleLoadFirmware}
-          disabled={isLoading || !selectedFile || (!fwUpdateSupport && !isUninitialized)}
+          disabled={isLoading || !selectedFile || !canLoadFirmware}
         >
           Load Firmware to OnlyKey
         </SetButton>
-        {(isUninitialized || fwUpdateSupport) && (
+        {canLoadFirmware && (
           <SetButton onClick={handleDownloadLatest} disabled={isLoading}>
             Download Latest Firmware
           </SetButton>

@@ -18,6 +18,11 @@ describe('MockTransport', () => {
     expect(t.getConnectedDevice().productId).toBe(0x614c);
   });
 
+  it('reports bootloader USB PID 0xB001', () => {
+    const t = new MockTransport({ deviceType: 'bootloader' });
+    expect(t.getConnectedDevice()).toEqual({ vendorId: 0x0000, productId: 0xb001 });
+  });
+
   it('unlocks on setPin and stores snapshot', async () => {
     const t = new MockTransport({ deviceType: 'classic' });
     const device = new OnlyKeyDevice(t);
@@ -52,6 +57,24 @@ describe('MockTransport', () => {
     const labels = await device.getLabels();
     expect(labels.get(1)).toBe('Gmail');
     expect(labels.get(7)).toBe('Bank');
+  });
+
+  it('emits firmware-coded HID slot bytes so slots 10–24 survive getLabels', async () => {
+    const t = new MockTransport({
+      binaryLabels: true,
+      initialLabels: { 10: 'Slack', 12: 'Bank', 20: 'Yellow', 24: 'Purple' },
+      responseDelayMs: 0,
+    });
+    const device = new OnlyKeyDevice(t);
+    await device.connect({ vendorId: 0, productId: 0 });
+    await device.setPin('1');
+
+    const labels = await device.getLabels();
+    expect(labels.get(10)).toBe('Slack');
+    expect(labels.get(12)).toBe('Bank');
+    expect(labels.get(20)).toBe('Yellow');
+    expect(labels.get(24)).toBe('Purple');
+    expect(labels.get(16)).toBeUndefined();
   });
 
   it('emits preference confirmation strings for matchPredicate waits', async () => {
@@ -139,6 +162,73 @@ describe('MockTransport', () => {
     device.state.isBootloader = true;
 
     await expect(device.loadFirmwareBlocks(['aabbccdd', '11223344'])).resolves.toBeUndefined();
+  });
+
+  it('emits NEXT BLOCK and SUCCESS immediately on the last chunk of a firmware block', async () => {
+    const t = new MockTransport({ deviceType: 'bootloader' });
+    const device = new OnlyKeyDevice(t);
+    await device.connect({ vendorId: 0, productId: 0 });
+    device.state.isBootloader = true;
+    const messages: string[] = [];
+    device.on('messageReceived', (m) => messages.push(m));
+
+    await device.loadFirmwareBlocks(['aa']);
+
+    expect(messages).toEqual(
+      expect.arrayContaining(['RECEIVED OKFWUPDATE', 'NEXT BLOCK', 'SUCCESSFULLY LOADED FW']),
+    );
+  });
+
+  it('emits text labels when binaryLabels is false', async () => {
+    const t = new MockTransport({ binaryLabels: false, startLocked: false, initialLabels: { 1: 'A', 11: 'B' } });
+    const device = new OnlyKeyDevice(t);
+    await device.connect({ vendorId: 0, productId: 0 });
+    await device.getLabels();
+    expect(device.state.labels.get(1)).toBe('A');
+    expect(device.state.labels.get(11)).toBe('B');
+  });
+
+  it('decodes raw numeric PIN digits and DUO locked status', async () => {
+    const t = new MockTransport({ deviceType: 'duo', startLocked: true, correctPin: '12' });
+    const device = new OnlyKeyDevice(t);
+    await device.connect({ vendorId: 0, productId: 0 });
+    t.sentPackets.length = 0;
+    const packet = new Uint8Array(64);
+    packet.set([0xff, 0xff, 0xff, 0xff, MessageID.OKSETPIN, 1, 2]);
+    await t.send(0, packet);
+    expect(t.getSnapshot().isLocked).toBe(false);
+  });
+
+  it('returns OK for empty label maps and unused message ids', async () => {
+    const t = new MockTransport({ deviceType: 'bootloader', initialLabels: {} });
+    await t.connect({ vendorId: 0, productId: 0 });
+    const received: string[] = [];
+    t.onReceive((data) => {
+      received.push(String.fromCharCode(...data.filter((b) => b >= 32 && b < 127)));
+    });
+    const labels = new Uint8Array(64);
+    labels.set([0xff, 0xff, 0xff, 0xff, MessageID.OKGETLABELS]);
+    await t.send(0, labels);
+    const unused = new Uint8Array(64);
+    unused.set([0xff, 0xff, 0xff, 0xff, MessageID.OKGETPUBKEY]);
+    await t.send(0, unused);
+    expect(received.some((s) => s.includes('OK'))).toBe(true);
+  });
+
+  it('ACKs intermediate 0xFF firmware chunks with RECEIVED OKFWUPDATE', async () => {
+    const t = new MockTransport({ deviceType: 'bootloader' });
+    await t.connect({ vendorId: 0, productId: 0 });
+    const received: string[] = [];
+    t.onReceive((data) => {
+      received.push(String.fromCharCode(...data.filter((b) => b >= 32 && b < 127)));
+    });
+
+    const packet = new Uint8Array(64);
+    packet.set([0xff, 0xff, 0xff, 0xff, MessageID.OKFWUPDATE, 0xff, 0xaa]);
+    await t.send(0, packet);
+
+    expect(received.some((s) => s.includes('RECEIVED OKFWUPDATE'))).toBe(true);
+    expect(received.some((s) => s.includes('NEXT BLOCK'))).toBe(false);
   });
 
   it('records sent packets for inspection', async () => {

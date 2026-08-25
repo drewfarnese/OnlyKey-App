@@ -93,9 +93,9 @@ export class WebHidTransport implements TransportInterface {
         event.device.productName
       );
       this.requestDeviceFailed = false;
-      if (!this.device && this.deviceAddedCallback) {
-        this.deviceAddedCallback();
-      }
+      // Always notify. A stale device reference after a missed disconnect
+      // event must not swallow the next plug — the store reconnects if needed.
+      this.deviceAddedCallback?.();
     });
 
     hid.addEventListener('disconnect', (event) => {
@@ -242,7 +242,7 @@ export class WebHidTransport implements TransportInterface {
       if (/disconnect|not found|invalid|closed/i.test(message)) {
         this.handleDisconnection();
       }
-      throw new Error(message || 'Unknown send error');
+      throw new Error(message || 'Unknown send error', { cause: err });
     }
   }
 

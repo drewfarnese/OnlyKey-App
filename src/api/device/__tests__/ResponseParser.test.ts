@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { ResponseParser } from '../ResponseParser';
+import { hidLabelSlotByte, parseHidLabelSlotId, ResponseParser } from '../ResponseParser';
 import { DeviceType } from '../types';
 
 describe('ResponseParser', () => {
@@ -10,6 +10,16 @@ describe('ResponseParser', () => {
     }
     return data;
   };
+
+  it('treats a wiped device as uninitialized, not locked', () => {
+    const data = stringToPacket('UNINITIALIZEDv2.1.0-prod');
+    const res = ResponseParser.parse(data);
+    expect(res.type).toBe('status');
+    expect(res.deviceType).toBe(DeviceType.UNINITIALIZED);
+    expect(res.isLocked).toBe(false);
+    expect(res.devicePinSet).toBe(false);
+    expect(res.version).toBe('v2.1.0-prod');
+  });
 
   it('should parse OnlyKey Classic initialization', () => {
     const data = stringToPacket('INITIALIZEDv2.1.0-prod');
@@ -28,17 +38,19 @@ describe('ResponseParser', () => {
     expect(res.isLocked).toBe(true);
   });
 
-  it('should keep Classic on unlocked v2 firmware even with a p suffix', () => {
-    const data = stringToPacket('UNLOCKEDv2.1.0-prodp');
+  it('should keep Classic on unlocked v3 firmware with a c suffix', () => {
+    const data = stringToPacket('UNLOCKEDv3.0.4-prodc');
     const res = ResponseParser.parse(data);
+    expect(res.isLocked).toBe(false);
+    expect(res.version).toBe('v3.0.4-prodc');
     expect(res.deviceType).toBe(DeviceType.CLASSIC);
   });
 
-  it('should infer DUO from unlocked v3 firmware without -D suffix', () => {
-    const data = stringToPacket('UNLOCKEDv3.0.0-prod');
+  it('should infer DUO from unlocked v3 firmware with a p suffix', () => {
+    const data = stringToPacket('UNLOCKEDv3.0.4-prodp');
     const res = ResponseParser.parse(data);
     expect(res.isLocked).toBe(false);
-    expect(res.version).toBe('v3.0.0-prod');
+    expect(res.version).toBe('v3.0.4-prodp');
     expect(res.deviceType).toBe(DeviceType.DUO);
   });
 
@@ -57,44 +69,74 @@ describe('ResponseParser', () => {
     expect(res.label).toBe('GitHub Login');
   });
 
-  it('should parse logical Slot IDs (1a-6b)', () => {
+  it('maps HID hex 1a–1e to slots 20–24, not Classic buttons', () => {
     const data = stringToPacket('1a|Work VPN');
     const res = ResponseParser.parse(data);
     expect(res.type).toBe('label');
-    expect(res.slotId).toBe(1);
+    expect(res.slotId).toBe(20);
     expect(res.label).toBe('Work VPN');
+    expect(parseHidLabelSlotId('1e')).toBe(24);
+    expect(parseHidLabelSlotId('10')).toBe(10);
   });
 
-  // Real Classic v3.0.4 firmware sends the slot number as a BCD byte:
-  // slot 11 (5b) arrives as [0x11, 0x7c, ...label] (captured over WebHID).
-  it('should decode BCD binary slot bytes for slots 10-12', () => {
-    const cases: Array<[number, number, string]> = [
-      [0x01, 1, 'CM VPN'],
-      [0x09, 9, 'CM AD (No Enter)'],
-      [0x10, 10, 'CMCloud'],
-      [0x11, 11, 'QA TEST'],
-      [0x12, 12, 'HQ New'],
-    ];
-    for (const [byte, slotId, label] of cases) {
+  it('decodes firmware-coded binary label reports for slots 10, 12, 20, and 24', () => {
+    const firmwarePacket = (logicalSlot: number, label: string) => {
       const data = new Uint8Array(64);
-      data[0] = byte;
-      data[1] = 0x7c; // '|'
+      data[0] = hidLabelSlotByte(logicalSlot);
+      data[1] = 0x7c;
       for (let i = 0; i < label.length; i++) data[i + 2] = label.charCodeAt(i);
-      const res = ResponseParser.parse(data);
-      expect(res.type).toBe('label');
-      expect(res.slotId).toBe(slotId);
-      expect(res.label).toBe(label);
-    }
+      return data;
+    };
+
+    expect(hidLabelSlotByte(9)).toBe(9);
+    expect(hidLabelSlotByte(10)).toBe(0x10);
+    expect(hidLabelSlotByte(12)).toBe(0x12);
+    expect(hidLabelSlotByte(20)).toBe(0x1a);
+    expect(hidLabelSlotByte(24)).toBe(0x1e);
+
+    expect(ResponseParser.parse(firmwarePacket(1, 'Gmail'))).toMatchObject({
+      type: 'label',
+      slotId: 1,
+      label: 'Gmail',
+    });
+    expect(ResponseParser.parse(firmwarePacket(10, 'Slack'))).toMatchObject({
+      type: 'label',
+      slotId: 10,
+      label: 'Slack',
+    });
+    expect(ResponseParser.parse(firmwarePacket(12, 'Bank'))).toMatchObject({
+      type: 'label',
+      slotId: 12,
+      label: 'Bank',
+    });
+    expect(ResponseParser.parse(firmwarePacket(20, 'Yellow'))).toMatchObject({
+      type: 'label',
+      slotId: 20,
+      label: 'Yellow',
+    });
+    expect(ResponseParser.parse(firmwarePacket(24, 'Purple'))).toMatchObject({
+      type: 'label',
+      slotId: 24,
+      label: 'Purple',
+    });
   });
 
-  it('should decode BCD binary slot bytes for DUO green-profile slots (13-24)', () => {
+  it('does not treat a raw slot-10 byte 0x0A as a firmware label', () => {
     const data = new Uint8Array(64);
-    data[0] = 0x24; // DUO slot 24 as BCD
+    data[0] = 10;
     data[1] = 0x7c;
-    data[2] = 0x58; // 'X'
+    data[2] = 'X'.charCodeAt(0);
     const res = ResponseParser.parse(data);
-    expect(res.type).toBe('label');
-    expect(res.slotId).toBe(24);
+    expect(res.type).not.toBe('label');
+  });
+
+  it('treats BOOTLOADER as an unlocked status, not free text', () => {
+    const data = stringToPacket('BOOTLOADER');
+    const res = ResponseParser.parse(data);
+    expect(res.type).toBe('status');
+    expect(res.deviceType).toBe(DeviceType.BOOTLOADER);
+    expect(res.isLocked).toBe(false);
+    expect(res.text).toBe('BOOTLOADER');
   });
 
   it('should parse error messages', () => {

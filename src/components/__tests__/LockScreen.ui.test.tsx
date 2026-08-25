@@ -42,13 +42,13 @@ describe('LockScreen', () => {
 
   it('shows DUO PIN form and submits', async () => {
     const user = userEvent.setup();
-    const setPin = vi.fn().mockResolvedValue(undefined);
+    const sendPinDUO = vi.fn().mockResolvedValue(undefined);
     seedDeviceStore({
       isConnected: true,
       isLocked: true,
       isConfigMode: false,
       deviceType: DeviceType.DUO,
-      device: createMockDeviceClient({ setPin }),
+      device: createMockDeviceClient({ sendPinDUO }),
       activeTab: 'setup',
     });
     renderWithProviders(<LockScreen />);
@@ -57,7 +57,91 @@ describe('LockScreen', () => {
     await user.type(screen.getByPlaceholderText(/enter pin/i), '123456');
     await user.click(screen.getByRole('button', { name: /unlock device/i }));
 
-    expect(setPin).toHaveBeenCalledWith('123456');
+    expect(sendPinDUO).toHaveBeenCalledWith(['123456'], false);
+  });
+
+  it('keeps the DUO PIN field and shows Incorrect PIN after INITIALIZED-D', async () => {
+    const user = userEvent.setup();
+    const sendPinDUO = vi.fn().mockRejectedValue(new Error('Incorrect PIN'));
+    seedDeviceStore({
+      isConnected: true,
+      isLocked: true,
+      isConfigMode: false,
+      deviceType: DeviceType.DUO,
+      device: createMockDeviceClient({ sendPinDUO }),
+      pinError: 'Incorrect PIN',
+      activeTab: 'setup',
+    });
+    renderWithProviders(<LockScreen />);
+    await user.type(screen.getByPlaceholderText(/enter pin/i), '1111111');
+    await user.click(screen.getByRole('button', { name: /unlock device/i }));
+    expect(sendPinDUO).toHaveBeenCalledWith(['1111111'], false);
+    expect(screen.getByPlaceholderText(/enter pin/i)).toHaveValue('1111111');
+    expect(screen.getByText(/incorrect pin/i)).toBeInTheDocument();
+  });
+
+  it('stays visible while locked in config mode so the DUO PIN can be entered', async () => {
+    const user = userEvent.setup();
+    const sendPinDUO = vi.fn().mockResolvedValue(undefined);
+    const refreshStatus = vi.fn().mockResolvedValue(undefined);
+    seedDeviceStore({
+      isConnected: true,
+      isLocked: true,
+      isConfigMode: true,
+      deviceType: DeviceType.DUO,
+      device: createMockDeviceClient({ sendPinDUO, refreshStatus }),
+      activeTab: 'setup',
+    });
+    renderWithProviders(<LockScreen />);
+    expect(screen.getByTestId('lock-screen')).toBeInTheDocument();
+    await vi.waitFor(() => expect(refreshStatus).toHaveBeenCalled());
+    await user.type(screen.getByPlaceholderText(/enter pin/i), '3253614');
+    await user.click(screen.getByRole('button', { name: /unlock device/i }));
+    expect(sendPinDUO).toHaveBeenCalledWith(['3253614'], false);
+    expect(refreshStatus).toHaveBeenCalled();
+  });
+
+  it('keeps Classic keypad polling while locked in config mode', async () => {
+    const refreshStatus = vi.fn().mockResolvedValue(undefined);
+    seedDeviceStore({
+      isConnected: true,
+      isLocked: true,
+      isConfigMode: true,
+      deviceType: DeviceType.CLASSIC,
+      device: createMockDeviceClient({ refreshStatus }),
+      activeTab: 'setup',
+    });
+    renderWithProviders(<LockScreen />);
+    expect(screen.getByTestId('lock-screen')).toBeInTheDocument();
+    expect(screen.getByText(/six-button keypad/i)).toBeInTheDocument();
+    await vi.waitFor(() => expect(refreshStatus).toHaveBeenCalled());
+  });
+
+  it('is hidden in bootloader so firmware load is not covered by the lock overlay', () => {
+    seedDeviceStore({
+      isConnected: true,
+      isLocked: true,
+      isConfigMode: false,
+      isBootloader: true,
+      deviceType: DeviceType.BOOTLOADER,
+      device: createMockDeviceClient(),
+      activeTab: 'firmware',
+    });
+    renderWithProviders(<LockScreen />);
+    expect(screen.queryByTestId('lock-screen')).not.toBeInTheDocument();
+  });
+
+  it('is hidden for an uninitialized wiped device', () => {
+    seedDeviceStore({
+      isConnected: true,
+      isLocked: false,
+      isConfigMode: false,
+      deviceType: DeviceType.UNINITIALIZED,
+      device: createMockDeviceClient(),
+      activeTab: 'setup',
+    });
+    renderWithProviders(<LockScreen />);
+    expect(screen.queryByTestId('lock-screen')).not.toBeInTheDocument();
   });
 
   it('does not duplicate the sidebar logo', () => {

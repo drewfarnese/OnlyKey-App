@@ -5,7 +5,7 @@ import { DeviceType } from '../api/device/types';
 const LOCK_POLL_MS = 1500;
 
 const LockScreen: React.FC = () => {
-  const { deviceType, device, isLocked, isConnected, isConfigMode, pinError, activeTab } =
+  const { deviceType, device, isLocked, isConnected, isBootloader, pinError, activeTab } =
     useDeviceStore();
   const [pin, setPin] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -13,19 +13,27 @@ const LockScreen: React.FC = () => {
   const pollInFlight = useRef(false);
 
   const isDuo = deviceType === DeviceType.DUO;
-  const isClassic = deviceType === DeviceType.CLASSIC || deviceType === DeviceType.UNKNOWN;
 
   // Classic unlock is entirely on-device (6-button keypad). Firmware ignores OKSETPIN
   // once initialized unless in config mode. Poll OKSETTIME so we notice UNLOCKED even
-  // if the single unsolicited unlock HID report was missed.
+  // if the single unsolicited unlock HID report was missed. Keep polling while locked
+  // in config mode — firmware does not print UNLOCKED on the PIN itself. DUO is polled
+  // too: the config-mode PIN may be entered on the keypad instead of the app form.
   useEffect(() => {
-    if (!isConnected || !isLocked || isConfigMode || !device || isDuo) {
+    if (
+      !isConnected ||
+      !isLocked ||
+      !device ||
+      isBootloader ||
+      deviceType === DeviceType.UNINITIALIZED ||
+      deviceType === DeviceType.BOOTLOADER
+    ) {
       setClassicUnlockActive(false);
       return;
     }
 
     let cancelled = false;
-    setClassicUnlockActive(true);
+    if (!isDuo) setClassicUnlockActive(true);
 
     const tick = async () => {
       if (cancelled || pollInFlight.current) return;
@@ -33,7 +41,11 @@ const LockScreen: React.FC = () => {
       try {
         await device.refreshStatus();
       } catch (err) {
-        console.error('Lock status poll failed:', err);
+        const msg = err instanceof Error ? err.message : String(err);
+        // Timeouts are expected while locked: firmware set_time is silent until PIN.
+        if (msg !== 'Device disconnected' && !/timed out/i.test(msg)) {
+          console.error('Lock status poll failed:', err);
+        }
       } finally {
         pollInFlight.current = false;
       }
@@ -49,9 +61,18 @@ const LockScreen: React.FC = () => {
       window.clearInterval(id);
       setClassicUnlockActive(false);
     };
-  }, [isConnected, isLocked, isConfigMode, device, isDuo]);
+  }, [isConnected, isLocked, device, isDuo, deviceType, isBootloader]);
 
-  if (!isConnected || !isLocked || isConfigMode || activeTab === 'tools') return null;
+  if (
+    !isConnected ||
+    !isLocked ||
+    activeTab === 'tools' ||
+    deviceType === DeviceType.UNINITIALIZED ||
+    deviceType === DeviceType.BOOTLOADER ||
+    isBootloader
+  ) {
+    return null;
+  }
 
   const handleUnlock = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -59,7 +80,7 @@ const LockScreen: React.FC = () => {
 
     setIsSubmitting(true);
     try {
-      await device.setPin(pin);
+      await device.sendPinDUO([pin], false);
       setPin('');
       // DUO unlock reply is UNLOCKED* on the same request; also probe in case it was missed.
       try {

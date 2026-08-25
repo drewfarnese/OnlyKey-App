@@ -37,7 +37,14 @@ contextBridge.exposeInMainWorld('electronAPI', {
   parseSshPrivateKey: (pem, passphrase) => {
     const sshpk = require('sshpk');
     const key = sshpk.parsePrivateKey(pem, 'pem', { passphrase: passphrase || undefined });
-    return { type: key.type, pkcs1: Array.from(key.toBuffer('pkcs1')) };
+    // Hand the renderer the raw private parts (RSA p/q, ECDSA d, ed25519 k):
+    // the firmware wants p||q or a 32-byte scalar, never DER (see keyMaterial.ts).
+    const parts = {};
+    for (const name of ['p', 'q', 'd', 'k']) {
+      const part = key.part && key.part[name];
+      if (part && part.data) parts[name] = Array.from(part.data);
+    }
+    return { type: key.type, curve: key.curve, parts };
   },
 });
 

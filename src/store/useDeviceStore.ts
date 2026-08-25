@@ -55,17 +55,25 @@ interface DeviceState {
 /** Options for store.connect(). */
 export type ConnectOptions = {
   /**
-   * When true, flip `isConnecting` so the UI shows the hourglass / "Connecting..."
-   * state. Background HID probes (startup + 2s poll) must pass false — otherwise
-   * the overlay flickers in lockstep with the plug icon's 2s animate-pulse.
-   * Real plug events (onDeviceAdded) pass true.
+   * When true, flip `isConnecting` so the UI shows a connecting badge.
+   * Startup, 2s poll, and onDeviceAdded probes pass false — the Searching
+   * overlay already covers "no device", and a badge on every HID probe flickers.
    */
   announce?: boolean;
 };
 
+export type PermittedHidDevice = { vendorId: number; productId: number; productName?: string };
+
+/** Options for store.initialize(). A boolean is still accepted as `useMock`. */
+export type InitializeOptions = {
+  useMock?: boolean;
+  device?: DeviceClient;
+  listPermittedDevices?: () => Promise<PermittedHidDevice[]>;
+};
+
 export interface DeviceStore extends DeviceState {
   device: DeviceClient | null;
-  initialize: (useMock?: boolean) => Promise<void>;
+  initialize: (useMockOrOptions?: boolean | InitializeOptions) => Promise<void>;
   connect: (options?: ConnectOptions) => Promise<void>;
   disconnect: () => Promise<void>;
   startPolling: () => void;
@@ -93,8 +101,36 @@ const SUPPORTED_DEVICES = [
 
 let pollInterval: NodeJS.Timeout | null = null;
 let firmwareCheckInFlight: Promise<void> | null = null;
+let firmwareResumeInFlight: Promise<void> | null = null;
 /** In-flight connect mutex — separate from UI `isConnecting` so silent polls can run. */
 let connectInFlight = false;
+/** Coalesced: a plug arrived while connect() was still running. */
+let pendingReconnect = false;
+/** Identifies the current store connect so a superseded attempt cannot wipe a live session. */
+let connectAttempt = 0;
+let connectWatchdog: ReturnType<typeof setTimeout> | null = null;
+/** Last-resort: if device.connect() never settles, release the mutex. */
+export const CONNECT_WATCHDOG_MS = 20_000;
+let listPermittedDevicesFn: () => Promise<PermittedHidDevice[]> = async () => [];
+
+/** Test-only: drop module-level connect mutex/watchdog so suites cannot leak hangs. */
+export function resetDeviceStoreRuntimeForTests(): void {
+  connectInFlight = false;
+  pendingReconnect = false;
+  connectAttempt += 1;
+  listPermittedDevicesFn = async () => [];
+  if (connectWatchdog) {
+    clearTimeout(connectWatchdog);
+    connectWatchdog = null;
+  }
+}
+
+function parseInitializeOptions(
+  useMockOrOptions?: boolean | InitializeOptions,
+): InitializeOptions {
+  if (typeof useMockOrOptions === 'boolean') return { useMock: useMockOrOptions };
+  return useMockOrOptions ?? {};
+}
 
 /** Default landing tab once a device is usable. */
 function defaultTabForDevice(state: {
@@ -102,9 +138,8 @@ function defaultTabForDevice(state: {
   isBootloader: boolean;
   deviceType: DeviceType;
 }): DeviceState['activeTab'] {
-  if (state.isLocked || state.isBootloader) return 'setup';
-  // Brand-new keys still need the setup wizard.
   if (state.deviceType === DeviceType.UNINITIALIZED) return 'setup';
+  if (state.isLocked || state.isBootloader) return 'setup';
   // Initialized + unlocked (Classic/DUO, or type still refining) → Slots.
   return 'slots';
 }
@@ -183,22 +218,38 @@ export const useDeviceStore = create<DeviceStore>((set, get) => ({
   selectedSlotId: null,
   sessionEpoch: 0,
 
-  initialize: async (useMock = false) => {
+  initialize: async (useMockOrOptions: boolean | InitializeOptions = false) => {
     if (get().device) return;
 
-    const transport = useMock ? new MockTransport() : createHidTransport();
-    if (!(transport instanceof MockTransport)) {
-      transport.onDeviceAdded(() => {
-        // Device just appeared — show Connecting... (not a silent background probe).
-        if (!get().isConnected && !connectInFlight) {
-          void get().connect({ announce: true });
-        }
-      });
+    const options = parseInitializeOptions(useMockOrOptions);
+    const useMock = options.useMock === true;
+    listPermittedDevicesFn =
+      options.listPermittedDevices ??
+      (useMock || options.device
+        ? async () => []
+        : () => listPermittedHidDevices());
+
+    let device = options.device;
+    if (!device) {
+      const transport = useMock ? new MockTransport() : createHidTransport();
+      if (!useMock && !(transport instanceof MockTransport)) {
+        transport.onDeviceAdded(() => {
+          if (get().isConnected) return;
+          if (connectInFlight) {
+            pendingReconnect = true;
+            return;
+          }
+          void get().connect({ announce: false });
+        });
+      }
+      device = new OnlyKeyDevice(transport);
     }
-    const device = new OnlyKeyDevice(transport);
 
     device.on('statusChange', async (state) => {
       if (!state.isConnected) {
+        // INITIALIZED during transport.connect has lastStatusText but isConnected
+        // is still false. A real unplug/resetDeviceState has an empty snapshot.
+        if (connectInFlight && state.lastStatusText) return;
         // CRITICAL: unplug / disconnect wipes all device session UI state.
         set({
           ...disconnectedDeviceSnapshot,
@@ -255,8 +306,10 @@ export const useDeviceStore = create<DeviceStore>((set, get) => ({
         labels: isNowLocked ? {} : Object.fromEntries(state.labels),
         error: null,
         pinError: null,
-        // First unlock / connect-while-unlocked of an initialized device → Slots.
-        ...(wasLocked && !isNowLocked
+        // First unlock of an initialized device → Slots. Config-mode PIN
+        // also reports UNLOCKED (set_time); stay on the current tab so Setup
+        // Change PIN / passphrase is not yanked away to Slots.
+        ...(wasLocked && !isNowLocked && !state.isConfigMode
           ? {
               activeTab: defaultTabForDevice({
                 isLocked: false,
@@ -267,17 +320,11 @@ export const useDeviceStore = create<DeviceStore>((set, get) => ({
           : {}),
       });
 
-      if (state.isBootloader && state.isConnected) {
-        const pending = getPendingFirmware();
-        if (pending?.length) {
-          get().resumePendingFirmware();
-        }
-      }
-
       // Identify device type via labels before the firmware prompt can block the event loop.
       const shouldRefreshLabels =
         state.isConnected &&
         !isNowLocked &&
+        !state.isBootloader &&
         !get().isRefreshingLabels &&
         ((wasLocked && !isNowLocked) || Object.keys(get().labels).length === 0);
 
@@ -310,7 +357,12 @@ export const useDeviceStore = create<DeviceStore>((set, get) => ({
     });
 
     device.on('messageReceived', (message) => {
-      if (!get().isConnected || get().isLocked) return;
+      if (!get().isConnected) return;
+      const isStatus =
+        message.includes('UNLOCKED') ||
+        message.includes('INITIALIZED') ||
+        message.includes('BOOTLOADER');
+      if (get().isLocked && !isStatus) return;
       set((s) => ({
         recentMessages: [message, ...s.recentMessages].slice(0, 5),
       }));
@@ -319,22 +371,34 @@ export const useDeviceStore = create<DeviceStore>((set, get) => ({
     set({ device });
     get().startPolling();
     // Startup probe: silent. Do not flash Connecting... while nothing is plugged in.
-    void get().connect({ announce: false });
+    await get().connect({ announce: false });
   },
 
   resumePendingFirmware: async () => {
-    const { device, isBootloader } = get();
-    const pending = getPendingFirmware();
-    if (!device || !isBootloader || !pending?.length) return;
+    if (firmwareResumeInFlight) return firmwareResumeInFlight;
+
+    firmwareResumeInFlight = (async () => {
+      const { device, isBootloader } = get();
+      const pending = getPendingFirmware();
+      if (!device || !isBootloader || !pending?.length) return;
+
+      // Snapshot and clear before send so a second BOOTLOADER status cannot
+      // start another loadFirmwareBlocks on the same HID queue.
+      clearPendingFirmware();
+      try {
+        get().setWorking(true, 'Loading firmware…');
+        await device.loadFirmwareBlocks(pending);
+      } catch (e: any) {
+        set({ error: e.message });
+      } finally {
+        get().setWorking(false);
+      }
+    })();
 
     try {
-      get().setWorking(true, 'Loading firmware…');
-      await device.loadFirmwareBlocks(pending);
-      clearPendingFirmware();
-    } catch (e: any) {
-      set({ error: e.message });
+      await firmwareResumeInFlight;
     } finally {
-      get().setWorking(false);
+      firmwareResumeInFlight = null;
     }
   },
 
@@ -354,6 +418,8 @@ export const useDeviceStore = create<DeviceStore>((set, get) => ({
       try {
         set({ isRefreshingLabels: true });
         await device.getLabels();
+      } catch {
+        // Unplug / timeout — overlay already follows isConnected.
       } finally {
         set({ isRefreshingLabels: false });
       }
@@ -384,17 +450,60 @@ export const useDeviceStore = create<DeviceStore>((set, get) => ({
 
   connect: async (options = {}) => {
     const { device } = get();
-    if (!device || connectInFlight) return;
+    if (!device) return;
+    if (connectInFlight) {
+      if (!get().isConnected) pendingReconnect = true;
+      return;
+    }
 
     const announce = options.announce === true;
+    const attempt = ++connectAttempt;
     connectInFlight = true;
+    pendingReconnect = false;
     if (announce) set({ isConnecting: true });
+
+    if (connectWatchdog) clearTimeout(connectWatchdog);
+    connectWatchdog = setTimeout(() => {
+      if (attempt !== connectAttempt || !connectInFlight) return;
+      console.error('Connect watchdog: aborting hung HID connect');
+      connectAttempt += 1;
+      connectInFlight = false;
+      pendingReconnect = false;
+      if (connectWatchdog) {
+        clearTimeout(connectWatchdog);
+        connectWatchdog = null;
+      }
+      const hung = get().device;
+      void (async () => {
+        try {
+          await hung?.disconnect();
+        } catch {
+          // Hung connect may already be torn down.
+        }
+        if (!get().isConnected) {
+          void get().connect({ announce: false });
+        }
+      })();
+    }, CONNECT_WATCHDOG_MS);
 
     try {
       await device.connect(SUPPORTED_DEVICES);
+      if (attempt !== connectAttempt) return;
       set({ error: null, pinError: null });
+      // Resume only after connect() finishes so OKSETTIME is not interleaved
+      // with OKFWUPDATE on the same HID queue.
+      if (get().isBootloader) {
+        void get().resumePendingFirmware();
+      }
     } catch (e: any) {
-      if (e.message === 'Device not found') {
+      if (attempt !== connectAttempt) return;
+      const msg = e.message ?? '';
+      if (
+        msg === 'Device not found' ||
+        /not connected/i.test(msg) ||
+        /disconnected/i.test(msg) ||
+        /timed out/i.test(msg)
+      ) {
         // Silent probe failure — wipe device fields but do not bump sessionEpoch
         // on every 2s empty poll (would thrash React remounts while disconnected).
         const hadSession = get().isConnected;
@@ -403,7 +512,8 @@ export const useDeviceStore = create<DeviceStore>((set, get) => ({
           isConnecting: false,
           sessionEpoch: hadSession ? get().sessionEpoch + 1 : get().sessionEpoch,
         });
-        const permitted = await listPermittedHidDevices();
+        const permitted = await listPermittedDevicesFn();
+        if (attempt !== connectAttempt) return;
         const onlyKeyDevs = permitted.filter((d) =>
           SUPPORTED_DEVICES.some((f) => f.vendorId === d.vendorId && f.productId === d.productId)
         );
@@ -419,8 +529,20 @@ export const useDeviceStore = create<DeviceStore>((set, get) => ({
         set({ error: e.message, showUdevDialog: showUdev });
       }
     } finally {
-      connectInFlight = false;
-      if (get().isConnecting) set({ isConnecting: false });
+      if (connectWatchdog) {
+        clearTimeout(connectWatchdog);
+        connectWatchdog = null;
+      }
+      if (attempt === connectAttempt) {
+        connectInFlight = false;
+        if (get().isConnecting) set({ isConnecting: false });
+        if (pendingReconnect && !get().isConnected) {
+          pendingReconnect = false;
+          void get().connect({ announce: false });
+        } else {
+          pendingReconnect = false;
+        }
+      }
     }
   },
 
