@@ -16,7 +16,10 @@ export interface ElectronAPI {
   onOnlyKeyDeviceAdded(callback: (device: unknown) => void): void;
   onOnlyKeyDeviceRemoved(callback: (device: unknown) => void): void;
   /** Parses an SSH private key in the preload (Node) context; returns plain data only. */
-  parseSshPrivateKey(pem: string, passphrase?: string): { type: string; pkcs1: number[] };
+  parseSshPrivateKey(
+    pem: string,
+    passphrase?: string,
+  ): { type: string; curve?: string; parts: Record<string, number[] | undefined> };
 }
 
 declare global {

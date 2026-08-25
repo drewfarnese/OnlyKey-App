@@ -1,4 +1,5 @@
 import type { DeviceClient } from '../../api/device/DeviceClient';
+import { applyPrivateKeyTypeModifiers } from '../../api/device/keyMaterial';
 import { parseKeyBundle } from './keyBundleParser';
 import { KeyCandidate, KeyLoadAssignment } from './types';
 
@@ -7,6 +8,8 @@ export interface ImportPemKeyOptions {
   passcode: string;
   slotChoice: number;
   setAsBackup?: boolean;
+  setAsSignature?: boolean;
+  setAsDecryption?: boolean;
   selectedCandidateId?: string;
   targetSlot?: number;
 }
@@ -35,12 +38,17 @@ export async function importPemKey(
     assignments = bundle.assignments;
   }
 
+  const autoLoad = options.slotChoice === 99;
   for (const { candidate, slot } of assignments) {
-    await device.setPrivateKey(slot, candidate.type, candidate.keyData);
-  }
-
-  if (options.setAsBackup) {
-    await device.setBackupKeyMode(1);
+    const type = applyPrivateKeyTypeModifiers(candidate.type, slot, candidate.kind, {
+      setAsBackup: options.setAsBackup,
+      setAsSignature:
+        options.setAsSignature || (autoLoad && candidate.kind === 'ecc' && slot === 102),
+      setAsDecryption:
+        options.setAsDecryption || (autoLoad && candidate.kind === 'ecc' && slot === 101),
+      autoLoad,
+    });
+    await device.setPrivateKey(slot, type, candidate.keyData);
   }
 
   return {
