@@ -30,6 +30,7 @@ import {
   PlugIcon,
 } from './components/ui/icons';
 import { DeviceType } from './api/device/types';
+import { connectedDeviceLabel } from './data/deviceProduct';
 
 const App: React.FC = () => {
   const {
@@ -90,7 +91,7 @@ const App: React.FC = () => {
           {isConnected && (
             <>
               <div className="sidebar-status-device">
-                {deviceType} {version}
+                {connectedDeviceLabel(deviceType, version)}
               </div>
               <div className="sidebar-status-mode">
                 {isConfigMode
