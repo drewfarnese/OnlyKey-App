@@ -38,6 +38,7 @@ const App: React.FC = () => {
     isConnected,
     isLocked,
     isConfigMode,
+    isBootloader,
     deviceType,
     version,
     error,
@@ -94,13 +95,15 @@ const App: React.FC = () => {
                 {connectedDeviceLabel(deviceType, version)}
               </div>
               <div className="sidebar-status-mode">
-                {isConfigMode
-                  ? 'Config mode'
-                  : deviceType === DeviceType.UNINITIALIZED
-                    ? 'Uninitialized'
-                    : isLocked
-                      ? 'Locked'
-                      : 'Unlocked'}
+                {isBootloader || deviceType === DeviceType.BOOTLOADER
+                  ? 'Bootloader'
+                  : isConfigMode
+                    ? 'Config mode'
+                    : deviceType === DeviceType.UNINITIALIZED
+                      ? 'Uninitialized'
+                      : isLocked
+                        ? 'Locked'
+                        : 'Unlocked'}
               </div>
               <DeviceMessages />
             </>
