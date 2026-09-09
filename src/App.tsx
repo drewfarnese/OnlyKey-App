@@ -30,6 +30,7 @@ import {
   PlugIcon,
 } from './components/ui/icons';
 import { DeviceType } from './api/device/types';
+import { isUninitializedDevice } from './api/device/deviceTypeFromStatus';
 import { connectedDeviceLabel } from './data/deviceProduct';
 
 const App: React.FC = () => {
@@ -39,6 +40,7 @@ const App: React.FC = () => {
     isLocked,
     isConfigMode,
     isBootloader,
+    isInitialized,
     deviceType,
     version,
     error,
@@ -92,14 +94,14 @@ const App: React.FC = () => {
           {isConnected && (
             <>
               <div className="sidebar-status-device">
-                {connectedDeviceLabel(deviceType, version)}
+                {connectedDeviceLabel(deviceType, version, isInitialized)}
               </div>
               <div className="sidebar-status-mode">
                 {isBootloader || deviceType === DeviceType.BOOTLOADER
                   ? 'Bootloader'
                   : isConfigMode
                     ? 'Config mode'
-                    : deviceType === DeviceType.UNINITIALIZED
+                    : isUninitializedDevice({ isInitialized, deviceType })
                       ? 'Uninitialized'
                       : isLocked
                         ? 'Locked'
