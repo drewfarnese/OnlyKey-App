@@ -1,6 +1,5 @@
 import React, { useEffect, useRef } from 'react';
 import {
-  abortFirmwareUpdateFetches,
   bindAutoUpdateFWPrefListeners,
   isSafeFirmwareCheckMoment,
   resetOnDisconnect,
@@ -9,8 +8,6 @@ import {
   type FirmwareUpdatePhase,
 } from '../store/useFirmwareUpdateStore';
 import { useDeviceStore } from '../store/useDeviceStore';
-import { forceShowMainWindow } from '../desktop/windowVisibility';
-import { userPreferences } from '../desktop/userPreferences';
 import FirmwareUpdateDialog from './dialogs/FirmwareUpdateDialog';
 
 function shouldPresent(phase: FirmwareUpdatePhase): boolean {
@@ -69,29 +66,11 @@ const FirmwareUpdateHost: React.FC = () => {
   }, [isConnected]);
 
   useEffect(() => {
-    if (typeof nw === 'undefined') return;
-    const win = nw.Window.get();
-    const onClose = () => {
-      if (userPreferences.closeToTray) return;
-      abortFirmwareUpdateFetches();
-    };
-    win.on('close', onClose);
-    return () => {
-      try {
-        win.removeListener?.('close', onClose);
-      } catch {
-        /* ignore */
-      }
-    };
-  }, []);
-
-  useEffect(() => {
-    if (!open || typeof nw === 'undefined') return;
-    try {
-      forceShowMainWindow(nw.Window.get());
-    } catch {
+    if (!open) return;
+    // A prompt raised while the window sits in the tray should surface it.
+    window.electronAPI?.showMainWindow?.().catch(() => {
       /* ignore */
-    }
+    });
   }, [open]);
 
   return <FirmwareUpdateDialog open={open} />;

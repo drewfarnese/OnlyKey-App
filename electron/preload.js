@@ -9,6 +9,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
   getAppPath: () => ipcRenderer.invoke('get-app-path'),
   getPlatform: () => ipcRenderer.invoke('get-platform'),
   openExternal: (url) => ipcRenderer.invoke('open-external', url),
+  showMainWindow: () => ipcRenderer.invoke('show-main-window'),
 
   // App startup settings (launch at login, run minimized in the tray)
   getStartupSettings: () => ipcRenderer.invoke('get-startup-settings'),

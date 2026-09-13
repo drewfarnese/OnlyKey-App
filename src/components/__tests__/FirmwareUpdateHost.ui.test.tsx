@@ -8,9 +8,9 @@ import {
   useFirmwareUpdateStore,
 } from '../../store/useFirmwareUpdateStore';
 
-const { startAutoCheck, forceShowMainWindow } = vi.hoisted(() => ({
+const { startAutoCheck, showMainWindow } = vi.hoisted(() => ({
   startAutoCheck: vi.fn(async () => undefined),
-  forceShowMainWindow: vi.fn(),
+  showMainWindow: vi.fn(async () => undefined),
 }));
 
 vi.mock('../../store/useFirmwareUpdateStore', async (importOriginal) => {
@@ -23,19 +23,13 @@ vi.mock('../../store/useFirmwareUpdateStore', async (importOriginal) => {
   };
 });
 
-vi.mock('../../desktop/windowVisibility', () => ({
-  forceShowMainWindow,
-}));
-
-const win = { id: 1, on: vi.fn(), removeListener: vi.fn() };
 
 describe('FirmwareUpdateHost', () => {
   beforeEach(() => {
     resetFirmwareUpdateStoreForTests();
     startAutoCheck.mockClear();
-    forceShowMainWindow.mockClear();
-    win.on.mockClear();
-    vi.stubGlobal('nw', { Window: { get: () => win } });
+    showMainWindow.mockClear();
+    Object.assign(window, { electronAPI: { isDesktop: true, isElectron: true, showMainWindow } });
     seedDeviceStore({
       isConnected: false,
       isLocked: true,
@@ -49,6 +43,7 @@ describe('FirmwareUpdateHost', () => {
 
   afterEach(() => {
     resetFirmwareUpdateStoreForTests();
+    delete (window as { electronAPI?: unknown }).electronAPI;
   });
 
   it('shows the dialog when firmware is available and the PIN is not up', () => {
@@ -114,7 +109,7 @@ describe('FirmwareUpdateHost', () => {
     expect(screen.queryByTestId('firmware-update-dialog')).not.toBeInTheDocument();
   });
 
-  it('calls forceShowMainWindow(nw.Window.get()) when open becomes true', () => {
+  it('asks the shell to show the main window when the dialog opens', () => {
     seedDeviceStore({
       isConnected: true,
       isLocked: false,
@@ -130,7 +125,7 @@ describe('FirmwareUpdateHost', () => {
       currentVersion: 'v2.1.2 STD',
     });
     renderWithProviders(<FirmwareUpdateHost />);
-    expect(forceShowMainWindow).toHaveBeenCalledWith(win);
+    expect(showMainWindow).toHaveBeenCalled();
   });
 
   it('starts auto-check after unlock, not while locked', () => {

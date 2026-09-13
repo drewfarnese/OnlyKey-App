@@ -375,6 +375,10 @@ ipcMain.handle('set-startup-settings', async (event, partial) => {
   return getStartupSettings();
 });
 
+ipcMain.handle('show-main-window', () => {
+  showMainWindow();
+});
+
 ipcMain.handle('open-external', (event, url) => {
   if (isExternalUrl(url)) {
     return shell.openExternal(url);

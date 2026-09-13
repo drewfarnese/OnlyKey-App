@@ -12,6 +12,7 @@ import {
   type FirmwareUpdateErrorCode,
 } from '../desktop/firmwareDownload';
 import { AUTO_UPDATE_FW_PREF_EVENT, userPreferences } from '../desktop/userPreferences';
+import { isDesktopShell } from '../utils/platform';
 import { useDeviceStore } from './useDeviceStore';
 
 export type FirmwareUpdatePhase =
@@ -160,7 +161,7 @@ function markSessionChecked(): void {
 }
 
 export function isSafeFirmwareCheckMoment(): boolean {
-  if (typeof nw === 'undefined') return false;
+  if (!isDesktopShell()) return false;
   const d = useDeviceStore.getState();
   if (!d.isConnected) return false;
   if (d.isLocked) return false;
