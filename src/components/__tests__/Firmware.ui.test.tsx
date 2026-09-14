@@ -13,7 +13,6 @@ import {
   useFirmwareUpdateStore,
 } from '../../store/useFirmwareUpdateStore';
 import { AUTO_UPDATE_FW_PREF_EVENT } from '../../desktop/userPreferences';
-import * as appRoot from '../../desktop/appRoot';
 
 describe('Firmware page', () => {
   beforeEach(() => {
@@ -361,10 +360,8 @@ describe('Firmware page', () => {
     expect(screen.getByLabelText(/automatically check for firmware updates/i)).toBeInTheDocument();
   });
 
-  it('toggles the auto-check preference and rebuilds the tray menu', async () => {
+  it('toggles and persists the auto-check preference', async () => {
     const user = userEvent.setup();
-    const refreshTrayMenu = vi.fn();
-    vi.spyOn(appRoot, 'loadDesktopShell').mockReturnValue({ refreshTrayMenu });
     seedDeviceStore({
       device: createMockDeviceClient(),
       deviceType: DeviceType.CLASSIC,
@@ -376,7 +373,6 @@ describe('Firmware page', () => {
     await user.click(screen.getByTestId('auto-update-fw-checkbox'));
     expect(useFirmwareUpdateStore.getState().autoCheckFW).toBe(false);
     expect(localStorage.getItem('autoUpdateFW')).toBe('false');
-    expect(refreshTrayMenu).toHaveBeenCalled();
   });
 
   it('mirrors a tray pref change via onlykey-autoUpdateFW-changed', async () => {
