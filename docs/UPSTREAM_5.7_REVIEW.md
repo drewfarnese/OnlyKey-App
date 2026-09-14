@@ -4,6 +4,38 @@
 **Fork:** drewfarnese/OnlyKey-App `master` at `314371c`
 **Reviewed:** 2026-09-14
 
+## Status (2026-09-14)
+
+Everything below has been implemented on this branch. Item numbers refer to
+the recommendations that follow.
+
+| Item | Status | Where |
+|---|---|---|
+| 1 Electron 35 to 44 | Done | `package.json`; audit now clean at every level |
+| 2 Firmware check hardening (`32c3bdf`) | Done | cherry-picked, plus `isDesktopShell()` gate for Electron |
+| 3 App update path | Done | rewritten against this fork's GitHub releases: `src/desktop/updater.ts`, `useAppUpdateStore`, `AppUpdateHost`, Tools card; browser download only, no in-app installer |
+| 4 `44f1cb3` config-mode wipe | Done | cherry-picked |
+| 5 `7368234` UNINITIALIZED inference | Done | cherry-picked |
+| 6 `55f68da` + `8de8cc1` product naming | Done | cherry-picked |
+| 7 `a4ef941` + `7d735ae` bootloader / Setup files | Done | cherry-picked |
+| 8 `0ca84f6` tab retention | Done | cherry-picked |
+| 9 CI gates | Done | lint, typecheck, audit, coverage jobs in `test.yml` |
+| 10 appdmg removal | Done | `hdiutil` in `tasks/release_osx.js` |
+| 11 Release matrix | Done | three-OS `release.yml`, gated on checks; macOS DMG is Apple Silicon only for now |
+| 12 Dependabot | Done | `.github/dependabot.yml` |
+| 13 vitest bump + overrides | Done | `package.json` |
+| 14 Firmware-update flow | Done | upstream series cherry-picked, Electron `show-main-window` IPC |
+| 15 Messages panel | Done | cherry-picked, verified in the sidebar layout |
+| 16 AppSettings to Tools | Done | `src/components/Tools.tsx` |
+| 17 NW.js cleanup + AGENTS.md | Done | `windowVisibility`, `nw.d.ts`, NW bootstrap, unmounted `AppFooter` removed |
+| Fork hardening | Done | permission handlers, preload surface, production CSP |
+
+Not done, deliberately: an in-app installer download/verify/apply (the
+upstream `06a0a11` series). It needs signed installers and a manifest
+pipeline first; the app opens the GitHub download in the browser instead.
+`ChromeHidTransport` and `transportFactory` remain as the legacy chrome.hid
+path; they are not shell code and were left alone.
+
 ## How the trees relate
 
 The fork imported upstream's `src/` verbatim at upstream `14e297f` (2026-07-30) in #7,
