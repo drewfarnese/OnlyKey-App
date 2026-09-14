@@ -2,6 +2,7 @@ import { defineConfig } from 'vitest/config';
 import react from '@vitejs/plugin-react';
 import tailwindcss from '@tailwindcss/vite';
 import path from 'path';
+import { version as appVersion } from './package.json';
 
 const coverage = {
   provider: 'v8' as const,
@@ -28,6 +29,9 @@ const coverage = {
 };
 
 export default defineConfig({
+  define: {
+    __APP_VERSION__: JSON.stringify(appVersion),
+  },
   plugins: [react(), tailwindcss()],
   resolve: {
     alias: {
@@ -58,7 +62,7 @@ export default defineConfig({
         },
       },
       // The upstream 'desktop' project exercised the NW.js shell (tests/desktop);
-      // the Electron shell is covered by the existing mocha suite in test/.
+      // the Electron shell (electron/) has no automated suite yet.
     ],
   },
 });

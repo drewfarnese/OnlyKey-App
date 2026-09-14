@@ -12,7 +12,9 @@ import Firmware from './components/Firmware';
 import Advanced from './components/Advanced';
 import Tools from './components/Tools';
 import DeviceDialogs from './components/DeviceDialogs';
+import AppUpdateHost from './components/AppUpdateHost';
 import WorkingDialog from './components/dialogs/WorkingDialog';
+import FirmwareUpdateHost from './components/FirmwareUpdateHost';
 import ThemeToggle from './components/ThemeToggle';
 import DeviceMessages from './components/DeviceMessages';
 import { HelpTip } from './components/ui/HelpTip';
@@ -30,6 +32,8 @@ import {
   PlugIcon,
 } from './components/ui/icons';
 import { DeviceType } from './api/device/types';
+import { isUninitializedDevice } from './api/device/deviceTypeFromStatus';
+import { connectedDeviceLabel } from './data/deviceProduct';
 
 const App: React.FC = () => {
   const {
@@ -37,6 +41,8 @@ const App: React.FC = () => {
     isConnected,
     isLocked,
     isConfigMode,
+    isBootloader,
+    isInitialized,
     deviceType,
     version,
     error,
@@ -53,9 +59,12 @@ const App: React.FC = () => {
   return (
     <div className="flex h-screen bg-ok-dark overflow-hidden select-none relative">
       <DeviceDialogs />
+      {/* Outside the sessionEpoch subtree: a lock/unlock must not restart the update check */}
+      <AppUpdateHost />
       {/* sessionEpoch forces remount — wipes WorkingDialog / SlotEditor local state */}
       <WorkingDialog key={`working-${sessionEpoch}`} />
       <SlotEditor key={`slot-editor-${sessionEpoch}`} />
+      <FirmwareUpdateHost />
 
       <div className="w-56 shrink-0 bg-ok-gray flex flex-col min-h-0 h-full border-r border-white/10">
         <div className="sidebar-brand shrink-0 p-3 flex items-center justify-between gap-2 min-w-0">
@@ -90,16 +99,18 @@ const App: React.FC = () => {
           {isConnected && (
             <>
               <div className="sidebar-status-device">
-                {deviceType} {version}
+                {connectedDeviceLabel(deviceType, version, isInitialized)}
               </div>
               <div className="sidebar-status-mode">
-                {isConfigMode
-                  ? 'Config mode'
-                  : deviceType === DeviceType.UNINITIALIZED
-                    ? 'Uninitialized'
-                    : isLocked
-                      ? 'Locked'
-                      : 'Unlocked'}
+                {isBootloader || deviceType === DeviceType.BOOTLOADER
+                  ? 'Bootloader'
+                  : isConfigMode
+                    ? 'Config mode'
+                    : isUninitializedDevice({ isInitialized, deviceType })
+                      ? 'Uninitialized'
+                      : isLocked
+                        ? 'Locked'
+                        : 'Unlocked'}
               </div>
               <DeviceMessages />
             </>

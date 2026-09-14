@@ -4,14 +4,13 @@ import type { DeviceClient } from '../api/device/DeviceClient';
 import { createHidTransport, listPermittedHidDevices } from '../api/transport/transportFactory';
 import { MockTransport } from '../api/transport/MockTransport';
 import { DeviceType } from '../api/device/types';
+import { isUninitializedDevice } from '../api/device/deviceTypeFromStatus';
 import type { DuoProfileId } from '../api/device/firmwareConstants';
 import { isConnectErrorLikelyUdev, isLinux } from '../utils/platform';
 import {
-  checkForNewFirmware,
   getPendingFirmware,
   clearPendingFirmware,
   supportsAppFirmwareUpdate,
-  FirmwareCheckResult
 } from '../desktop/firmwareCheck';
 import { disconnectedDeviceSnapshot, lockedSessionWipeSnapshot } from './deviceStateReset';
 
@@ -21,6 +20,7 @@ interface DeviceState {
   isLocked: boolean;
   isConfigMode: boolean;
   isBootloader: boolean;
+  isInitialized: boolean;
   isRefreshingLabels: boolean;
   isPolling: boolean;
   deviceType: DeviceType;
@@ -36,7 +36,8 @@ interface DeviceState {
   /** 0–100 while a long job runs; null when indeterminate / inactive. */
   workingProgress: number | null;
   fwUpdateSupport: boolean;
-  firmwareCheck: FirmwareCheckResult | null;
+  /** True while Setup is on a PIN / passphrase / PGP / restore step. */
+  setupOccupiesFirmwarePrompt: boolean;
   labels: Record<number, string>;
   error: string | null;
   pinError: string | null;
@@ -100,7 +101,6 @@ const SUPPORTED_DEVICES = [
 ];
 
 let pollInterval: NodeJS.Timeout | null = null;
-let firmwareCheckInFlight: Promise<void> | null = null;
 let firmwareResumeInFlight: Promise<void> | null = null;
 /** In-flight connect mutex — separate from UI `isConnecting` so silent polls can run. */
 let connectInFlight = false;
@@ -136,55 +136,12 @@ function parseInitializeOptions(
 function defaultTabForDevice(state: {
   isLocked: boolean;
   isBootloader: boolean;
+  isInitialized: boolean;
   deviceType: DeviceType;
 }): DeviceState['activeTab'] {
-  if (state.deviceType === DeviceType.UNINITIALIZED) return 'setup';
-  if (state.isLocked || state.isBootloader) return 'setup';
+  if (isUninitializedDevice(state) || state.isLocked || state.isBootloader) return 'setup';
   // Initialized + unlocked (Classic/DUO, or type still refining) → Slots.
   return 'slots';
-}
-
-/** Wait for label-driven device type identification before any blocking firmware UI. */
-async function waitForLabelIdentification(
-  get: () => DeviceStore,
-  maxMs = 6000,
-): Promise<void> {
-  const started = Date.now();
-  while (get().isRefreshingLabels && Date.now() - started < maxMs) {
-    await new Promise((r) => setTimeout(r, 50));
-  }
-}
-
-async function promptFirmwareUpdateIfNeeded(
-  get: () => DeviceStore,
-  set: (partial: Partial<DeviceStore>) => void,
-  version: string,
-): Promise<void> {
-  if (firmwareCheckInFlight) return firmwareCheckInFlight;
-
-  firmwareCheckInFlight = (async () => {
-    try {
-      await waitForLabelIdentification(get);
-      const check = await checkForNewFirmware(version, get().deviceType);
-      set({ firmwareCheck: check });
-
-      if (check.updateAvailable && check.latestVersion) {
-        const shouldPrompt = userPreferencesAutoUpdateFW();
-        if (
-          shouldPrompt &&
-          confirm(
-            `Firmware ${check.latestVersion} is available. Your version is ${version}. Open the Firmware tab to update?`,
-          )
-        ) {
-          set({ activeTab: 'firmware' });
-        }
-      }
-    } finally {
-      firmwareCheckInFlight = null;
-    }
-  })();
-
-  return firmwareCheckInFlight;
 }
 
 export const useDeviceStore = create<DeviceStore>((set, get) => ({
@@ -193,6 +150,7 @@ export const useDeviceStore = create<DeviceStore>((set, get) => ({
   isLocked: true,
   isConfigMode: false,
   isBootloader: false,
+  isInitialized: true,
   isRefreshingLabels: false,
   isPolling: false,
   deviceType: DeviceType.UNKNOWN,
@@ -207,7 +165,7 @@ export const useDeviceStore = create<DeviceStore>((set, get) => ({
   workingMessage: 'Please wait…',
   workingProgress: null,
   fwUpdateSupport: false,
-  firmwareCheck: null,
+  setupOccupiesFirmwarePrompt: false,
   labels: {},
   error: null,
   pinError: null,
@@ -268,12 +226,17 @@ export const useDeviceStore = create<DeviceStore>((set, get) => ({
       // CRITICAL: unlocked → locked ends the UI session. Wipe secrets even though
       // the USB connection may still be open (idle lock, user re-locked, etc.).
       if (wasConnected && !wasLocked && isNowLocked) {
+        // Config-mode lock (red LED) is a deliberate setup step, not an idle
+        // lockout — keep Advanced/Keys/Setup so wipe/set PIN stay reachable
+        // after the config PIN. Idle lock still forces Setup.
+        const currentTab = get().activeTab;
         set({
           ...lockedSessionWipeSnapshot,
           isConnected: true,
           isLocked: true,
           isConfigMode: state.isConfigMode,
           isBootloader: state.isBootloader,
+          isInitialized: state.isInitialized ?? true,
           deviceType: state.deviceType,
           deviceTypeSource: state.deviceTypeSource,
           usbProductId: state.usbProductId,
@@ -284,6 +247,7 @@ export const useDeviceStore = create<DeviceStore>((set, get) => ({
           fwUpdateSupport: fwSupport,
           // Never keep labels while locked — firmware may still return them.
           labels: {},
+          ...(state.isConfigMode ? { activeTab: currentTab } : {}),
           sessionEpoch: get().sessionEpoch + 1,
         });
         return;
@@ -294,6 +258,7 @@ export const useDeviceStore = create<DeviceStore>((set, get) => ({
         isLocked: state.isLocked,
         isConfigMode: state.isConfigMode,
         isBootloader: state.isBootloader,
+        isInitialized: state.isInitialized ?? true,
         deviceType: state.deviceType,
         deviceTypeSource: state.deviceTypeSource,
         usbProductId: state.usbProductId,
@@ -314,13 +279,13 @@ export const useDeviceStore = create<DeviceStore>((set, get) => ({
               activeTab: defaultTabForDevice({
                 isLocked: false,
                 isBootloader: state.isBootloader,
+                isInitialized: state.isInitialized ?? true,
                 deviceType: state.deviceType,
               }),
             }
           : {}),
       });
 
-      // Identify device type via labels before the firmware prompt can block the event loop.
       const shouldRefreshLabels =
         state.isConnected &&
         !isNowLocked &&
@@ -330,10 +295,6 @@ export const useDeviceStore = create<DeviceStore>((set, get) => ({
 
       if (shouldRefreshLabels) {
         void get().refreshLabels();
-      }
-
-      if (state.version) {
-        void promptFirmwareUpdateIfNeeded(get, set, state.version);
       }
     });
 
@@ -364,7 +325,7 @@ export const useDeviceStore = create<DeviceStore>((set, get) => ({
         message.includes('BOOTLOADER');
       if (get().isLocked && !isStatus) return;
       set((s) => ({
-        recentMessages: [message, ...s.recentMessages].slice(0, 5),
+        recentMessages: [message, ...s.recentMessages].slice(0, 50),
       }));
     });
 
@@ -386,8 +347,10 @@ export const useDeviceStore = create<DeviceStore>((set, get) => ({
       // start another loadFirmwareBlocks on the same HID queue.
       clearPendingFirmware();
       try {
-        get().setWorking(true, 'Loading firmware…');
-        await device.loadFirmwareBlocks(pending);
+        get().setWorking(true, 'Loading firmware… 0%', 0);
+        await device.loadFirmwareBlocks(pending, (pct) => {
+          get().setWorking(true, `Loading firmware… ${Math.round(pct)}%`, pct);
+        });
       } catch (e: any) {
         set({ error: e.message });
       } finally {
@@ -555,11 +518,3 @@ export const useDeviceStore = create<DeviceStore>((set, get) => ({
   clearPinError: () => set({ pinError: null }),
   dismissUdevDialog: () => set({ showUdevDialog: false }),
 }));
-
-function userPreferencesAutoUpdateFW(): boolean {
-  try {
-    return localStorage.getItem('autoUpdateFW') !== 'false';
-  } catch {
-    return true;
-  }
-}

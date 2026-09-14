@@ -1,7 +1,6 @@
 'use strict';
 
 const jetpack = require('fs-jetpack');
-const { replace } = require('./utils');
 
 let projectDir;
 let releasesDir;
@@ -68,39 +67,38 @@ const prepareOsSpecificThings = function () {
 };
 
 const packToDmgFile = function () {
-    return new Promise(function (resolve, reject) {
-        const appdmg = require('appdmg');
-        const dmgName = manifest.productName + '_' + manifest.version + '.dmg';
+    // hdiutil ships with macOS; it replaced the unmaintained appdmg package
+    // (unfixable image-size advisories) and needs no native build.
+    const childProcess = require('child_process');
+    const dmgName = manifest.productName + '_' + manifest.version + '_' + process.arch + '.dmg';
+    const dmgPath = releasesDir.path(dmgName);
 
-        // Prepare appdmg config
-        let dmgManifest = projectDir.read('resources/osx/appdmg.json');
-        dmgManifest = replace(dmgManifest, {
-            productName: manifest.productName,
-            appPath: finalAppDir.path(),
-            dmgIcon: projectDir.path("resources/osx/dmg-icon.icns"),
-            dmgBackground: projectDir.path("resources/osx/dmg-background.png")
-        });
-        tmpDir.write('appdmg.json', dmgManifest);
-
-        // Delete DMG file with this name if already exists
-        releasesDir.remove(dmgName);
-
-        console.log('Packaging to DMG file...');
-
-        const readyDmgPath = releasesDir.path(dmgName);
-        appdmg({
-            source: tmpDir.path('appdmg.json'),
-            target: readyDmgPath
+    // Stage a folder holding the .app and an /Applications shortcut so the
+    // mounted image offers the usual drag-to-install layout.
+    const stageDir = tmpDir.dir('dmg-root', { empty: true });
+    return stageDir.copyAsync(finalAppDir.path(), stageDir.path(manifest.productName + '.app'), { overwrite: true })
+        .then(function () {
+            return stageDir.symlinkAsync('/Applications', 'Applications');
         })
-        .on('error', function (err) {
-            console.error(err);
-            reject(err);
-        })
-        .on('finish', function () {
-            console.log('DMG file ready!', readyDmgPath);
-            resolve();
+        .then(function () {
+            releasesDir.remove(dmgName);
+            console.log('Packaging to DMG file with hdiutil...');
+            return new Promise(function (resolve, reject) {
+                childProcess.execFile(
+                    'hdiutil',
+                    ['create', '-volname', manifest.productName, '-srcfolder', stageDir.path(), '-ov', '-format', 'UDZO', dmgPath],
+                    function (error, stdout, stderr) {
+                        if (error) {
+                            console.error(stderr || stdout);
+                            reject(error);
+                            return;
+                        }
+                        console.log('DMG file ready!', dmgPath);
+                        resolve();
+                    }
+                );
+            });
         });
-    });
 };
 
 const cleanClutter = function () {

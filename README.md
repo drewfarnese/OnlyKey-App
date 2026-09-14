@@ -96,11 +96,16 @@ To create releases:
 
 This will create an installer in the `releases/` subfolder. The installer is created for the current OS; this means you will need to run the `release` command on Windows, Linux, and Mac OS to generate all the installers.
 
-On Windows, you need to install [NSIS](https://nsis.sourceforge.io/) first, and ensure that it's present in your shell's `%PATH%`. That is, add `C:/Program Files (x86)/NSIS` or similar to your `%PATH%` in the operating system settings. On Mac OS, the optional `appdmg` dependency (installed automatically by `pnpm install`) is used to build the dmg.
+On Windows, you need to install [NSIS](https://nsis.sourceforge.io/) first, and ensure that it's present in your shell's `%PATH%`. That is, add `C:/Program Files (x86)/NSIS` or similar to your `%PATH%` in the operating system settings. On Mac OS, the DMG is built with the system `hdiutil` tool. On Linux, `dpkg-deb` is required.
 
-To run tests (vitest — unit and UI suites, no hardware required):
+The [release workflow](.github/workflows/release.yml) builds all three installers on GitHub-hosted runners after the lint, typecheck, and test gates pass, and attaches them to a GitHub release. The app checks that releases page at startup (configurable under Tools) and offers to open the installer download in your browser.
 
-    $ pnpm test
+To run the same checks CI enforces (lint, typecheck, unit and UI tests with the 75% coverage floor, dependency audit):
+
+    $ pnpm lint
+    $ pnpm typecheck
+    $ pnpm test:coverage
+    $ pnpm audit --audit-level=high
 
 ## Cryptography Notice
 

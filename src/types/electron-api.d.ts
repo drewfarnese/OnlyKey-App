@@ -8,6 +8,8 @@ export interface ElectronAPI {
   getAppPath(): Promise<string>;
   getPlatform(): Promise<NodeJS.Platform>;
   openExternal(url: string): Promise<void>;
+  /** Show and focus the main window (e.g. when it is hidden in the tray). */
+  showMainWindow(): Promise<void>;
   getStartupSettings(): Promise<StartupSettings>;
   setStartupSettings(partial: Partial<StartupSettings>): Promise<StartupSettings>;
   onStartupSettingsChanged(callback: (settings: StartupSettings) => void): () => void;

@@ -1,7 +1,9 @@
 import { describe, expect, it } from 'vitest';
 import { DeviceType } from '../../api/device/types';
 import {
+  CONFIG_MODE_FOR_OPERATION,
   CONFIG_MODE_REQUIRED,
+  SYSADMIN_MODE_PREF_HINT,
   configModeHowToText,
   configModePassphraseHint,
   configModeTooltipText,
@@ -16,7 +18,7 @@ describe('configMode copy', () => {
 
   it('uses button #1 / 10+ seconds for DUO', () => {
     expect(configModeHowToText(DeviceType.DUO)).toBe(
-      'Hold down button #1 on your OnlyKey DUO for 10+ seconds and release. The light will turn off. If a PIN was previously set, re-enter the PIN to enter config mode. You will notice the OnlyKey flashes red in config mode.',
+      'Hold down button #1 on your OnlyKey Duo for 10+ seconds and release. The light will turn off. If a PIN was previously set, re-enter the PIN to enter config mode. You will notice the OnlyKey flashes red in config mode.',
     );
   });
 
@@ -34,5 +36,7 @@ describe('configMode copy', () => {
     expect(configModeTooltipText(DeviceType.DUO)).toContain('button #1');
     expect(configModeTooltipText(DeviceType.CLASSIC)).toContain('button #6');
     expect(CONFIG_MODE_REQUIRED).toMatch(/flashing red LED/i);
+    expect(CONFIG_MODE_FOR_OPERATION).toMatch(/flashing red LED/i);
+    expect(SYSADMIN_MODE_PREF_HINT).toMatch(/sysadmin mode/i);
   });
 });

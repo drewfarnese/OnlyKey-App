@@ -18,4 +18,16 @@ describe('Tools page', () => {
     const gpg = screen.getByRole('link', { name: /onlykey gpg agent/i });
     expect(gpg).toHaveAttribute('href', 'https://docs.crp.to/gpgagentquickstart.html');
   });
+
+  it('hosts the app update settings card', () => {
+    renderWithProviders(<Tools />);
+    expect(screen.getByTestId('app-update-settings')).toBeInTheDocument();
+    expect(screen.getByTestId('check-now')).toBeInTheDocument();
+  });
+
+  it('does not host firmware update controls', () => {
+    renderWithProviders(<Tools />);
+    expect(screen.queryByTestId('auto-update-fw-checkbox')).not.toBeInTheDocument();
+    expect(screen.queryByLabelText(/automatically check for firmware updates/i)).not.toBeInTheDocument();
+  });
 });

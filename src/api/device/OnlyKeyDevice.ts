@@ -11,6 +11,7 @@ import {
 } from './deviceTypeFromStatus';
 import { ResponseParser, DeviceResponse } from './ResponseParser';
 import { hexToModhex, hexStringToByteArray } from './utils';
+import { CONFIG_MODE_FOR_OPERATION, CONFIG_MODE_REQUIRED } from '../../data/configMode';
 
 export declare interface OnlyKeyDevice {
   on(event: 'statusChange', listener: (state: OnlyKeyDevice['state']) => void): this;
@@ -89,6 +90,7 @@ export class OnlyKeyDevice extends TypedEmitter implements DeviceClient {
     isLocked: true,
     isConfigMode: false,
     isBootloader: false,
+    isInitialized: true,
     deviceType: DeviceType.UNKNOWN,
     deviceTypeSource: '',
     usbProductId: null as number | null,
@@ -136,6 +138,7 @@ export class OnlyKeyDevice extends TypedEmitter implements DeviceClient {
       isLocked: true,
       isConfigMode: false,
       isBootloader: false,
+      isInitialized: true,
       deviceType: DeviceType.UNKNOWN,
       deviceTypeSource: '',
       usbProductId: null,
@@ -227,15 +230,16 @@ export class OnlyKeyDevice extends TypedEmitter implements DeviceClient {
     }
   }
 
-  private static formatDeviceLockedError(message: string): string {
+  private static formatDeviceLockedError(message: string, isLocked = true): string {
     if (/not in config mode/i.test(message)) {
-      return (
-        'OnlyKey must be in config mode (flashing red LED) for this operation. ' +
-        'If this was a standard preference (type speed, layout, LED, lockout, lock button), ' +
-        'disable Sysadmin Mode first — when Sysadmin Mode is on, firmware requires config mode for all OKSETSLOT writes.'
-      );
+      return CONFIG_MODE_FOR_OPERATION;
     }
     if (/device locked/i.test(message)) {
+      // 3.0.4 OKWIPEPRIV has no "not in config mode" branch — it prints
+      // "Error device locked" whenever unlocked+configmode is false. Newer
+      // firmware names config mode (handled above). If we already believe the
+      // key is unlocked, treat this as a config-mode refusal.
+      if (!isLocked) return CONFIG_MODE_REQUIRED;
       return 'OnlyKey is locked. Unlock your device and try again.';
     }
     return message;
@@ -285,6 +289,17 @@ export class OnlyKeyDevice extends TypedEmitter implements DeviceClient {
       const wasLocked = this.state.isLocked;
       const text = response.text ?? '';
 
+      if (text.includes('BOOTLOADER') || response.deviceType === DeviceType.BOOTLOADER) {
+        if (!this.state.isBootloader) {
+          this.state.isBootloader = true;
+          stateChanged = true;
+        }
+        if (this.state.isLocked) {
+          this.state.isLocked = false;
+          stateChanged = true;
+        }
+      }
+
       // Explicit unlock/lock from firmware status strings. Do not rely solely on
       // response.isLocked — defensive for any parser edge cases.
       if (text.includes('UNLOCKED')) {
@@ -297,6 +312,7 @@ export class OnlyKeyDevice extends TypedEmitter implements DeviceClient {
         // Firmware ignores OKSETTIME while locked (no recvmsg). 5.6 called
         // setTime after UNLOCKED so TOTP has a clock. refreshStatus is only a
         // lock probe — it must not stand in for this post-unlock setTime.
+        // UNLOCKED BOOTLOADERv1 is not an application unlock — skip setTime.
         if (justUnlocked && !this.state.isBootloader) {
           void this.setTime().catch(() => {
             /* unplug during setTime */
@@ -362,15 +378,12 @@ export class OnlyKeyDevice extends TypedEmitter implements DeviceClient {
         this.state.devicePinSet = pinSet;
         stateChanged = true;
       }
-      if (text.includes('BOOTLOADER') || response.deviceType === DeviceType.BOOTLOADER) {
-        if (!this.state.isBootloader) {
-          this.state.isBootloader = true;
-          stateChanged = true;
-        }
-        if (this.state.isLocked) {
-          this.state.isLocked = false;
-          stateChanged = true;
-        }
+      if (
+        response.isInitialized !== undefined &&
+        this.state.isInitialized !== response.isInitialized
+      ) {
+        this.state.isInitialized = response.isInitialized;
+        stateChanged = true;
       }
     }
 
@@ -411,7 +424,7 @@ export class OnlyKeyDevice extends TypedEmitter implements DeviceClient {
 
     // Finally resolve or reject the promise
     if (rejectFn) {
-      rejectFn(new Error(OnlyKeyDevice.formatDeviceLockedError(response.error || 'Unknown device error')));
+      rejectFn(new Error(OnlyKeyDevice.formatDeviceLockedError(response.error || 'Unknown device error', this.state.isLocked)));
     } else if (resolveFn) {
       resolveFn(response);
     }
@@ -1047,7 +1060,12 @@ export class OnlyKeyDevice extends TypedEmitter implements DeviceClient {
 
       const t = `${res.text ?? ''} ${res.error ?? ''}`.toLowerCase();
       if (res.type === 'error' || /error/i.test(t)) {
-        throw new Error(OnlyKeyDevice.formatDeviceLockedError(res.error || res.text || 'Restore failed'));
+        throw new Error(
+          OnlyKeyDevice.formatDeviceLockedError(
+            res.error || res.text || 'Restore failed',
+            this.state.isLocked,
+          ),
+        );
       }
       if (!t.includes('successfully loaded backup') && !t.includes('remove and reinsert')) {
         throw new Error(res.text || 'Restore failed');

@@ -1,11 +1,11 @@
 import React, { useState } from 'react';
 import { useDeviceStore } from '../store/useDeviceStore';
 import { KEYBOARD_LAYOUTS, KEYBOARD_LAYOUT_LABELS, WIPE_MODE_FULL } from '../api/device/firmwareConstants';
+import { SYSADMIN_MODE_PREF_HINT } from '../data/configMode';
 import { TOOLTIPS } from '../data/tooltips';
 import { CautionButton, SetButton } from './ui/forms';
 import { PrefRow } from './ui/PrefRow';
 import { PseudoTabBar, PseudoTabPanel } from './ui/PseudoTabs';
-import AppSettings from './AppSettings';
 
 type PrefTab = 'standard' | 'advanced';
 
@@ -30,7 +30,10 @@ const Preferences: React.FC = () => {
       await action();
       setStatus(`${label} saved.`);
     } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err);
+      let msg = err instanceof Error ? err.message : String(err);
+      if (activeTab === 'standard' && /config mode/i.test(msg)) {
+        msg = `${msg} ${SYSADMIN_MODE_PREF_HINT}`;
+      }
       console.error(err);
       setError(msg);
     } finally {
@@ -287,7 +290,6 @@ const Preferences: React.FC = () => {
             <div>{standardLeft}</div>
             <div>{standardRight}</div>
           </div>
-          <AppSettings />
         </PseudoTabPanel>
 
         <PseudoTabPanel id="advanced" active={activeTab}>

@@ -9,6 +9,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
   getAppPath: () => ipcRenderer.invoke('get-app-path'),
   getPlatform: () => ipcRenderer.invoke('get-platform'),
   openExternal: (url) => ipcRenderer.invoke('open-external', url),
+  showMainWindow: () => ipcRenderer.invoke('show-main-window'),
 
   // App startup settings (launch at login, run minimized in the tray)
   getStartupSettings: () => ipcRenderer.invoke('get-startup-settings'),
@@ -46,21 +47,6 @@ contextBridge.exposeInMainWorld('electronAPI', {
     }
     return { type: key.type, curve: key.curve, parts };
   },
-});
-
-// Expose Node.js modules needed by the app
-contextBridge.exposeInMainWorld('nodeRequire', {
-  // Auto-launch functionality
-  getAutoLaunch: () => {
-    const AutoLaunch = require('auto-launch');
-    return AutoLaunch;
-  },
-  
-  // OS module for platform detection
-  platform: process.platform,
-  
-  // Path utilities
-  join: (...args) => require('path').join(...args),
 });
 
 // Note: WebHID API (navigator.hid) is available directly in the renderer

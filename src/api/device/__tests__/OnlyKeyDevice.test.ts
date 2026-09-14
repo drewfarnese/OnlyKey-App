@@ -40,9 +40,26 @@ describe('OnlyKeyDevice', () => {
     await device.connect({ vendorId: 0, productId: 0 });
     (transport as any).simulateResponse('UNINITIALIZEDv2.1.0-prod');
 
-    expect(device.state.deviceType).toBe(DeviceType.UNINITIALIZED);
+    expect(device.state.deviceType).toBe(DeviceType.CLASSIC);
+    expect(device.state.isInitialized).toBe(false);
     expect(device.state.isLocked).toBe(false);
     expect(device.state.devicePinSet).toBe(false);
+  });
+
+  it('classifies a wiped DUO from UNINITIALIZED* suffix letter, not DeviceType.UNINITIALIZED', async () => {
+    const transport = new MockTransport();
+    const device = new OnlyKeyDevice(transport);
+
+    await device.connect({ vendorId: 0x1d50, productId: 0x60fc });
+    transport.simulateResponse('UNINITIALIZEDv3.0.4-testp');
+
+    expect(device.state.deviceType).toBe(DeviceType.DUO);
+    expect(device.state.isInitialized).toBe(false);
+    expect(device.state.isLocked).toBe(false);
+
+    transport.simulateResponse('UNINITIALIZEDv3.0.4-testc');
+    expect(device.state.deviceType).toBe(DeviceType.CLASSIC);
+    expect(device.state.isInitialized).toBe(false);
   });
 
   it('promotes a premature Classic to DUO on UNLOCKEDv3-prodp', async () => {
@@ -273,20 +290,103 @@ describe('OnlyKeyDevice', () => {
     await expect(device.wipeYubiAuth()).rejects.toThrow(/config mode/i);
   });
 
-  it('maps device locked errors to unlock guidance (not config mode)', async () => {
-    const transport = new MockTransport();
-    const device = new OnlyKeyDevice(transport);
+  const wipeHw = [
+    { kind: 'classic' as const, vendorId: 0x16c0, productId: 0x0486 },
+    { kind: 'duo' as const, vendorId: 0x1d50, productId: 0x614c },
+  ];
 
-    await device.connect({ vendorId: 0, productId: 0 });
+  it.each(wipeHw)(
+    '$kind: maps device locked errors to unlock guidance while locked',
+    async ({ kind, vendorId, productId }) => {
+      const transport = new MockTransport({ deviceType: kind, startLocked: true });
+      const device = new OnlyKeyDevice(transport);
+      await device.connect({ vendorId, productId });
 
-    vi.spyOn(transport, 'send').mockImplementation(async () => {
-      setTimeout(() => {
-        (transport as any).simulateResponse('Error device locked');
-      }, 10);
-    });
+      vi.spyOn(transport, 'send').mockImplementation(async () => {
+        setTimeout(() => {
+          (transport as any).simulateResponse('Error device locked');
+        }, 10);
+      });
 
-    await expect(device.wipePrivateKey(101)).rejects.toThrow(/locked/i);
-  });
+      await expect(device.wipePrivateKey(101)).rejects.toThrow(/locked/i);
+    },
+  );
+
+  it.each(wipeHw)(
+    '$kind: maps OKWIPEPRIV "device locked" to config-mode guidance when unlocked',
+    async ({ kind, vendorId, productId }) => {
+      const transport = new MockTransport({ deviceType: kind, startLocked: false });
+      const device = new OnlyKeyDevice(transport);
+      await device.connect({ vendorId, productId });
+      expect(device.state.isLocked).toBe(false);
+
+      vi.spyOn(transport, 'send').mockImplementation(async () => {
+        setTimeout(() => {
+          (transport as any).simulateResponse('Error device locked');
+        }, 10);
+      });
+
+      await expect(device.wipePrivateKey(101)).rejects.toThrow(/flashing red led/i);
+    },
+  );
+
+  it.each(wipeHw)(
+    '$kind: maps OKWIPEPRIV "not in config mode" the way newer firmware names it',
+    async ({ kind, vendorId, productId }) => {
+      const transport = new MockTransport({ deviceType: kind, startLocked: false });
+      const device = new OnlyKeyDevice(transport);
+      await device.connect({ vendorId, productId });
+      expect(device.state.isLocked).toBe(false);
+
+      vi.spyOn(transport, 'send').mockImplementation(async () => {
+        setTimeout(() => {
+          (transport as any).simulateResponse('Error not in config mode');
+        }, 10);
+      });
+
+      await expect(device.wipePrivateKey(101)).rejects.toThrow(/flashing red led/i);
+    },
+  );
+
+  it.each(wipeHw)(
+    '$kind: wipes when the mock is in config mode even if the app never flagged it',
+    async ({ kind, vendorId, productId }) => {
+      const transport = new MockTransport({
+        deviceType: kind,
+        startLocked: false,
+        requireConfigMode: true,
+        unlockEntersConfigMode: false,
+      });
+      const device = new OnlyKeyDevice(transport);
+      await device.connect({ vendorId, productId });
+      transport.setLocked(false);
+      transport.setConfigMode(true);
+      transport.setLocked(false);
+      expect(device.state.isConfigMode).toBe(false);
+
+      await expect(device.wipePrivateKey(101)).resolves.toBeUndefined();
+      expect(device.state.isConfigMode).toBe(false);
+    },
+  );
+
+  it.each(wipeHw)(
+    '$kind: refuses OKWIPEPRIV through the mock the way newer firmware names config mode',
+    async ({ kind, vendorId, productId }) => {
+      const transport = new MockTransport({
+        deviceType: kind,
+        startLocked: false,
+        requireConfigMode: true,
+        unlockEntersConfigMode: false,
+      });
+      const device = new OnlyKeyDevice(transport);
+      await device.connect({ vendorId, productId });
+      transport.setLocked(false);
+      transport.setConfigMode(false);
+      expect(device.state.isLocked).toBe(false);
+
+      await expect(device.wipePrivateKey(101)).rejects.toThrow(/flashing red led/i);
+    },
+  );
 
   it('standard preferences succeed unlocked without config mode', async () => {
     const transport = new MockTransport({
@@ -588,6 +688,25 @@ it('should timeout if hardware does not respond', async () => {
     expect(connected.length).toBeGreaterThan(0);
     expect(connected[0]?.isLocked).toBe(false);
     expect(device.state.isLocked).toBe(false);
+  });
+
+  it('treats UNLOCKED BOOTLOADERv1 as bootloader, not an application unlock', async () => {
+    const transport = new MockTransport({ startLocked: true });
+    const device = new OnlyKeyDevice(transport);
+    await device.connect({ vendorId: 0, productId: 0 });
+    expect(device.state.isLocked).toBe(true);
+    const sendSpy = vi.spyOn(transport, 'send');
+    sendSpy.mockClear();
+
+    transport.simulateResponse('UNLOCKED BOOTLOADERv1');
+
+    expect(device.state.deviceType).toBe(DeviceType.BOOTLOADER);
+    expect(device.state.isBootloader).toBe(true);
+    expect(device.state.isLocked).toBe(false);
+    expect(device.state.version).toBe('v1');
+    expect(sendSpy.mock.calls.some((c) => (c[1] as Uint8Array)[4] === MessageID.OKSETTIME)).toBe(
+      false,
+    );
   });
 
   it('connect on a bootloader transport sets isBootloader without a manual assignment', async () => {

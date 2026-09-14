@@ -1,6 +1,5 @@
 import { DeviceType } from '../api/device/types';
 import type { DuoProfileId } from '../api/device/firmwareConstants';
-import type { FirmwareCheckResult } from '../desktop/firmwareCheck';
 
 /**
  * Zustand fields that MUST be wiped when the OnlyKey disconnects or the UI
@@ -16,6 +15,7 @@ export const disconnectedDeviceSnapshot = {
   isLocked: true,
   isConfigMode: false,
   isBootloader: false,
+  isInitialized: true,
   isRefreshingLabels: false,
   deviceType: DeviceType.UNKNOWN,
   deviceTypeSource: '',
@@ -29,8 +29,8 @@ export const disconnectedDeviceSnapshot = {
   error: null as string | null,
   pinError: null as string | null,
   recentMessages: [] as string[],
-  firmwareCheck: null as FirmwareCheckResult | null,
   fwUpdateSupport: false,
+  setupOccupiesFirmwarePrompt: false,
   selectedSlotId: null as number | null,
   isWorking: false,
   workingMessage: 'Please wait…',
@@ -39,7 +39,8 @@ export const disconnectedDeviceSnapshot = {
 
 /**
  * Extra fields wiped on unlocked→locked (connection may remain). Forces a
- * non-sensitive tab and clears secret-bearing store fields.
+ * non-sensitive tab and clears secret-bearing store fields. Config-mode lock
+ * keeps the current tab in useDeviceStore so Advanced key wipe stays reachable.
  */
 export const lockedSessionWipeSnapshot = {
   isRefreshingLabels: false,
@@ -47,7 +48,7 @@ export const lockedSessionWipeSnapshot = {
   error: null as string | null,
   pinError: null as string | null,
   recentMessages: [] as string[],
-  firmwareCheck: null as FirmwareCheckResult | null,
+  setupOccupiesFirmwarePrompt: false,
   selectedSlotId: null as number | null,
   isWorking: false,
   workingMessage: 'Please wait…',

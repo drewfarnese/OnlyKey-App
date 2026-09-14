@@ -1,19 +1,58 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { sha256 } from 'js-sha256';
 import { userPreferences } from '../userPreferences';
 import {
-  checkForAppUpdate,
+  APP_RELEASES_API_URL,
+  APP_RELEASES_PAGE_URL,
+  APP_UPDATE_SESSION_KEY,
+  AppUpdateError,
+  type AppUpdateIo,
+  checkAppUpdate,
   compareSemver,
+  isAllowedDownloadUrl,
   isHttpsUrl,
-  normalizeSha256,
-  verifySha256,
+  openAppUpdateDownload,
+  pickInstallerAsset,
+  platformInstallerExtension,
 } from '../updater';
 
+const DOWNLOAD_BASE = 'https://github.com/drewfarnese/OnlyKey-App/releases/download/v6.1.0';
+
+function release(overrides: Record<string, unknown> = {}) {
+  return {
+    tag_name: 'v6.1.0',
+    html_url: 'https://github.com/drewfarnese/OnlyKey-App/releases/tag/v6.1.0',
+    assets: [
+      { name: 'OnlyKey_6.1.0.exe', browser_download_url: `${DOWNLOAD_BASE}/OnlyKey_6.1.0.exe` },
+      { name: 'OnlyKey_6.1.0_amd64.deb', browser_download_url: `${DOWNLOAD_BASE}/OnlyKey_6.1.0_amd64.deb` },
+    ],
+    ...overrides,
+  };
+}
+
+function jsonResponse(body: unknown, status = 200): Response {
+  return {
+    ok: status >= 200 && status < 300,
+    status,
+    json: async () => body,
+  } as unknown as Response;
+}
+
+function io(partial: Partial<AppUpdateIo> = {}): AppUpdateIo {
+  return {
+    isDesktop: () => true,
+    autoUpdateEnabled: () => true,
+    getAppVersion: async () => '6.0.0',
+    getPlatform: async () => 'linux',
+    ...partial,
+  };
+}
+
 describe('updater helpers', () => {
-  it('compares semver', () => {
+  it('compares semver with and without a v prefix', () => {
     expect(compareSemver('5.7.1', '5.7.0')).toBe(1);
-    expect(compareSemver('5.7.0', '5.7.0')).toBe(0);
+    expect(compareSemver('v6.0.0', '6.0.0')).toBe(0);
     expect(compareSemver('5.6.9', '5.7.0')).toBe(-1);
+    expect(compareSemver('6.0.10', '6.0.9')).toBe(1);
   });
 
   it('accepts only https URLs', () => {
@@ -22,178 +61,173 @@ describe('updater helpers', () => {
     expect(isHttpsUrl('not-a-url')).toBe(false);
   });
 
-  it('verifies sha256 of the installer bytes', () => {
-    const body = new Uint8Array([1, 2, 3, 4]);
-    expect(() => verifySha256(body, sha256(body))).not.toThrow();
-    expect(() => verifySha256(body, 'deadbeef')).toThrow(/SHA-256/);
-    expect(normalizeSha256('SHA256:AbC')).toBe('abc');
+  it('allows only this repository release downloads', () => {
+    expect(isAllowedDownloadUrl(`${DOWNLOAD_BASE}/OnlyKey_6.1.0.exe`)).toBe(true);
+    expect(isAllowedDownloadUrl(APP_RELEASES_PAGE_URL)).toBe(true);
+    expect(isAllowedDownloadUrl('https://github.com/evil/OnlyKey-App/releases/download/v1/x.exe')).toBe(false);
+    expect(isAllowedDownloadUrl('http://github.com/drewfarnese/OnlyKey-App/releases/download/v1/x.exe')).toBe(false);
+  });
+
+  it('maps platforms to installer extensions', () => {
+    expect(platformInstallerExtension('win32')).toBe('.exe');
+    expect(platformInstallerExtension('darwin')).toBe('.dmg');
+    expect(platformInstallerExtension('linux')).toBe('.deb');
+    expect(platformInstallerExtension('freebsd')).toBeNull();
+  });
+
+  it('picks the installer for the platform and ignores foreign hosts', () => {
+    const rel = release({
+      assets: [
+        { name: 'OnlyKey_6.1.0.exe', browser_download_url: 'https://evil.example/OnlyKey_6.1.0.exe' },
+        { name: 'OnlyKey_6.1.0.exe', browser_download_url: `${DOWNLOAD_BASE}/OnlyKey_6.1.0.exe` },
+      ],
+    });
+    expect(pickInstallerAsset(rel, 'win32')).toBe(`${DOWNLOAD_BASE}/OnlyKey_6.1.0.exe`);
+    expect(pickInstallerAsset(rel, 'darwin')).toBeNull();
+    expect(pickInstallerAsset({ assets: 'nope' }, 'win32')).toBeNull();
   });
 });
 
-describe('checkForAppUpdate', () => {
+describe('checkAppUpdate', () => {
   beforeEach(() => {
     localStorage.clear();
-    vi.stubGlobal('nw', { App: { startPath: '/tmp' }, Shell: { showItemInFolder: vi.fn() } });
+    sessionStorage.clear();
   });
 
   afterEach(() => {
     vi.unstubAllGlobals();
   });
 
-  it('does nothing when autoUpdate is off', async () => {
+  it('skips outside a desktop shell', async () => {
     const fetchFn = vi.fn();
-    await checkForAppUpdate({ fetchFn: fetchFn as never });
+    const result = await checkAppUpdate(io({ isDesktop: () => false, fetchFn: fetchFn as never }));
+    expect(result).toEqual({ kind: 'skipped', reason: 'not-desktop' });
     expect(fetchFn).not.toHaveBeenCalled();
   });
 
-  it('refuses a non-HTTPS manifest', async () => {
-    userPreferences.autoUpdate = true;
-    await expect(
-      checkForAppUpdate({
-        readPackage: () => ({ version: '5.7.0', manifestUrl: 'http://evil.example/manifest.json' }),
-      }),
-    ).rejects.toThrow(/non-HTTPS/);
-  });
-
-  it('downloads only after sha256 and size match', async () => {
-    userPreferences.autoUpdate = true;
-    const body = new Uint8Array([9, 8, 7]);
-    const hash = sha256(body);
-    const written: Array<{ path: string; data: Uint8Array }> = [];
-    const showInFolder = vi.fn();
-    const fetchFn = vi.fn(async (url: string) => {
-      if (String(url).includes('manifest')) {
-        return {
-          ok: true,
-          json: async () => ({
-            version: '5.7.1',
-            packages: {
-              win64: { url: 'https://example.com/OnlyKey_5.7.1.exe', size: 3, sha256: hash },
-              mac64: { url: 'https://example.com/OnlyKey_5.7.1.dmg', size: 3, sha256: hash },
-              linux64: { url: 'https://example.com/OnlyKey_5.7.1.deb', size: 3, sha256: hash },
-            },
-          }),
-        };
-      }
-      return { ok: true, arrayBuffer: async () => body.buffer };
+  it('skips an automatic check when the preference is off, but not a forced one', async () => {
+    const fetchFn = vi.fn(async () => jsonResponse(release()));
+    expect(await checkAppUpdate(io({ autoUpdateEnabled: () => false, fetchFn: fetchFn as never }))).toEqual({
+      kind: 'skipped',
+      reason: 'pref-disabled',
     });
+    expect(fetchFn).not.toHaveBeenCalled();
 
-    await checkForAppUpdate({
-      fetchFn: fetchFn as never,
-      confirmFn: () => true,
-      readPackage: () => ({ version: '5.7.0', manifestUrl: 'https://example.com/manifest.json' }),
-      writeFile: (destPath, data) => written.push({ path: destPath, data }),
-      tmpDir: () => '/tmp/ok-updates',
-      showInFolder,
+    const forced = await checkAppUpdate(io({ autoUpdateEnabled: () => false, fetchFn: fetchFn as never }), {
+      force: true,
     });
-
-    expect(written).toHaveLength(1);
-    expect(written[0].data).toEqual(body);
-    expect(showInFolder).toHaveBeenCalledOnce();
+    expect(forced.kind).toBe('available');
   });
 
-  it('rejects a package with no sha256', async () => {
-    userPreferences.autoUpdate = true;
-    const fetchFn = vi.fn(async () => ({
-      ok: true,
-      json: async () => ({
-        version: '5.7.1',
-        packages: {
-          win64: { url: 'https://example.com/OnlyKey.exe' },
-          mac64: { url: 'https://example.com/OnlyKey.dmg' },
-          linux64: { url: 'https://example.com/OnlyKey.deb' },
-        },
-      }),
-    }));
+  it('checks once per session unless forced', async () => {
+    const fetchFn = vi.fn(async () => jsonResponse(release()));
+    const first = await checkAppUpdate(io({ fetchFn: fetchFn as never }));
+    expect(first.kind).toBe('available');
+    expect(sessionStorage.getItem(APP_UPDATE_SESSION_KEY)).toBe('1');
 
-    await expect(
-      checkForAppUpdate({
-        fetchFn: fetchFn as never,
-        confirmFn: () => true,
-        readPackage: () => ({ version: '5.7.0', manifestUrl: 'https://example.com/manifest.json' }),
-      }),
-    ).rejects.toThrow(/missing sha256/);
-  });
-
-  it('skips download when the user declines or versions are equal', async () => {
-    userPreferences.autoUpdate = true;
-    const fetchFn = vi.fn(async () => ({
-      ok: true,
-      json: async () => ({ version: '5.7.0', packages: {} }),
-    }));
-    await checkForAppUpdate({
-      fetchFn: fetchFn as never,
-      confirmFn: () => false,
-      readPackage: () => ({ version: '5.7.0', manifestUrl: 'https://example.com/manifest.json' }),
+    expect(await checkAppUpdate(io({ fetchFn: fetchFn as never }))).toEqual({
+      kind: 'skipped',
+      reason: 'already-checked',
     });
     expect(fetchFn).toHaveBeenCalledTimes(1);
 
-    fetchFn.mockResolvedValue({
-      ok: true,
-      json: async () => ({ version: '5.7.1', packages: {} }),
-    } as never);
-    await checkForAppUpdate({
-      fetchFn: fetchFn as never,
-      confirmFn: () => false,
-      readPackage: () => ({ version: '5.7.0', manifestUrl: 'https://example.com/manifest.json' }),
+    await checkAppUpdate(io({ fetchFn: fetchFn as never }), { force: true });
+    expect(fetchFn).toHaveBeenCalledTimes(2);
+  });
+
+  it('fetches the GitHub release without following redirects', async () => {
+    const fetchFn = vi.fn(async () => jsonResponse(release()));
+    await checkAppUpdate(io({ fetchFn: fetchFn as never }));
+    expect(fetchFn).toHaveBeenCalledWith(
+      APP_RELEASES_API_URL,
+      expect.objectContaining({ cache: 'no-store', redirect: 'error' }),
+    );
+  });
+
+  it('reports available with the platform installer URL', async () => {
+    const fetchFn = vi.fn(async () => jsonResponse(release()));
+    const result = await checkAppUpdate(io({ fetchFn: fetchFn as never, getPlatform: async () => 'win32' }));
+    expect(result).toEqual({
+      kind: 'available',
+      currentVersion: '6.0.0',
+      latestVersion: '6.1.0',
+      downloadUrl: `${DOWNLOAD_BASE}/OnlyKey_6.1.0.exe`,
+      releaseUrl: 'https://github.com/drewfarnese/OnlyKey-App/releases/tag/v6.1.0',
     });
   });
 
-  it('rejects a failed package download and a size mismatch', async () => {
-    userPreferences.autoUpdate = true;
-    const body = new Uint8Array([1, 2]);
-    const hash = sha256(body);
-    const pkg = {
-      url: 'https://example.com/OnlyKey.exe',
-      sha256: hash,
-      size: 99,
-    };
-    const manifest = {
-      version: '5.7.1',
-      packages: { win64: pkg, mac64: pkg, linux64: pkg },
-    };
-
-    await expect(
-      checkForAppUpdate({
-        fetchFn: vi
-          .fn()
-          .mockResolvedValueOnce({ ok: true, json: async () => manifest })
-          .mockResolvedValueOnce({ ok: false, status: 502 }) as never,
-        confirmFn: () => true,
-        readPackage: () => ({ version: '5.7.0', manifestUrl: 'https://example.com/manifest.json' }),
-      }),
-    ).rejects.toThrow(/Update download failed: HTTP 502/);
-
-    await expect(
-      checkForAppUpdate({
-        fetchFn: vi
-          .fn()
-          .mockResolvedValueOnce({ ok: true, json: async () => manifest })
-          .mockResolvedValueOnce({ ok: true, arrayBuffer: async () => body.buffer }) as never,
-        confirmFn: () => true,
-        readPackage: () => ({ version: '5.7.0', manifestUrl: 'https://example.com/manifest.json' }),
-      }),
-    ).rejects.toThrow(/size does not match/);
+  it('reports available with a null installer when the platform has none', async () => {
+    const fetchFn = vi.fn(async () => jsonResponse(release({ html_url: 'https://evil.example/x' })));
+    const result = await checkAppUpdate(io({ fetchFn: fetchFn as never, getPlatform: async () => 'darwin' }));
+    expect(result).toMatchObject({ kind: 'available', downloadUrl: null, releaseUrl: APP_RELEASES_PAGE_URL });
   });
 
-  it('rejects a missing HTTPS package URL and a failed manifest fetch', async () => {
-    userPreferences.autoUpdate = true;
-    await expect(
-      checkForAppUpdate({
-        fetchFn: vi.fn().mockResolvedValue({ ok: false, status: 404 }) as never,
-        readPackage: () => ({ version: '5.7.0', manifestUrl: 'https://example.com/manifest.json' }),
-      }),
-    ).rejects.toThrow(/Manifest fetch failed/);
+  it('reports current when the release is not newer', async () => {
+    const fetchFn = vi.fn(async () => jsonResponse(release({ tag_name: 'v6.0.0' })));
+    expect(await checkAppUpdate(io({ fetchFn: fetchFn as never }))).toEqual({
+      kind: 'current',
+      currentVersion: '6.0.0',
+      latestVersion: '6.0.0',
+    });
+  });
 
+  it('uses the Electron bridge for version and platform by default', async () => {
+    const api = { getAppVersion: async () => '6.0.0', getPlatform: async () => 'linux' };
+    Object.assign(window, { electronAPI: api });
+    const fetchFn = vi.fn(async () => jsonResponse(release()));
+    const result = await checkAppUpdate({ isDesktop: () => true, autoUpdateEnabled: () => true, fetchFn: fetchFn as never });
+    expect(result).toMatchObject({
+      kind: 'available',
+      currentVersion: '6.0.0',
+      downloadUrl: `${DOWNLOAD_BASE}/OnlyKey_6.1.0_amd64.deb`,
+    });
+    delete (window as { electronAPI?: unknown }).electronAPI;
+  });
+
+  it('throws typed errors for HTTP, network, and malformed responses', async () => {
+    await expect(checkAppUpdate(io({ fetchFn: (async () => jsonResponse({}, 503)) as never }))).rejects.toMatchObject({
+      code: 'http-release',
+      httpStatus: 503,
+    });
     await expect(
-      checkForAppUpdate({
-        fetchFn: vi.fn().mockResolvedValue({
-          ok: true,
-          json: async () => ({ version: '5.7.1', packages: {} }),
-        }) as never,
-        confirmFn: () => true,
-        readPackage: () => ({ version: '5.7.0', manifestUrl: 'https://example.com/manifest.json' }),
-      }),
-    ).rejects.toThrow(/No HTTPS package URL/);
+      checkAppUpdate(io({ fetchFn: (async () => { throw new TypeError('offline'); }) as never })),
+    ).rejects.toMatchObject({ code: 'http-release' });
+    await expect(
+      checkAppUpdate(io({ fetchFn: (async () => ({ ok: true, status: 200, json: async () => { throw new Error('bad'); } })) as never })),
+    ).rejects.toMatchObject({ code: 'invalid-release' });
+    await expect(
+      checkAppUpdate(io({ fetchFn: (async () => jsonResponse({ tag_name: 'nightly' })) as never })),
+    ).rejects.toMatchObject({ code: 'invalid-release' });
+  });
+
+  it('reads the preference from userPreferences by default', async () => {
+    userPreferences.autoUpdate = false;
+    const fetchFn = vi.fn();
+    const result = await checkAppUpdate({ isDesktop: () => true, fetchFn: fetchFn as never });
+    expect(result).toEqual({ kind: 'skipped', reason: 'pref-disabled' });
+  });
+});
+
+describe('openAppUpdateDownload', () => {
+  it('opens allowed URLs through the shell', async () => {
+    const openExternal = vi.fn(async () => {});
+    await openAppUpdateDownload(`${DOWNLOAD_BASE}/OnlyKey_6.1.0.exe`, { openExternal });
+    await openAppUpdateDownload('https://github.com/drewfarnese/OnlyKey-App/releases/tag/v6.1.0', { openExternal });
+    expect(openExternal).toHaveBeenCalledTimes(2);
+  });
+
+  it('refuses non-HTTPS and foreign URLs', async () => {
+    const openExternal = vi.fn(async () => {});
+    await expect(openAppUpdateDownload('http://github.com/drewfarnese/OnlyKey-App/releases/x', { openExternal })).rejects.toBeInstanceOf(
+      AppUpdateError,
+    );
+    await expect(openAppUpdateDownload('https://evil.example/OnlyKey.exe', { openExternal })).rejects.toMatchObject({
+      code: 'host-not-allowed',
+    });
+    expect(openExternal).not.toHaveBeenCalled();
+  });
+
+  it('fails with io when no shell can open a URL', async () => {
+    await expect(openAppUpdateDownload(APP_RELEASES_PAGE_URL, {})).rejects.toMatchObject({ code: 'io' });
   });
 });

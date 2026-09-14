@@ -2,6 +2,8 @@ import React from 'react';
 import { TOOLTIPS } from '../data/tooltips';
 import { HelpTip } from './ui/HelpTip';
 import { Tooltip } from './ui/Tooltip';
+import AppUpdateSettings from './AppUpdateSettings';
+import AppSettings from './AppSettings';
 import {
   LockIcon,
   UnlockIcon,
@@ -72,6 +74,9 @@ const Tools: React.FC = () => (
           ))}
         </div>
       </section>
+
+      <AppUpdateSettings />
+      <AppSettings />
     </div>
   </div>
 );

@@ -1,16 +1,35 @@
-import React, { useState, useRef } from 'react';
+import React, { useEffect, useState, useRef } from 'react';
 import { useDeviceStore } from '../store/useDeviceStore';
+import {
+  bindAutoUpdateFWPrefListeners,
+  checkNow,
+  setAutoUpdateFW,
+  useFirmwareUpdateStore,
+} from '../store/useFirmwareUpdateStore';
 import { parseFirmwareData } from '../api/device/utils';
-import { clearPendingFirmware, storePendingFirmware } from '../desktop/firmwareCheck';
-import { fetchLatestFirmwareRelease } from '../desktop/firmwareDownload';
-import { DeviceType } from '../api/device/types';
+import { applyFirmwareBlocks } from '../desktop/firmwareApply';
+import { downloadLatestFirmware } from '../desktop/firmwareDownload';
+import { isUninitializedDevice } from '../api/device/deviceTypeFromStatus';
 import { TOOLTIPS } from '../data/tooltips';
 import ConfigModeInstructions from './ConfigModeInstructions';
 import { SetButton, StepFieldset } from './ui/forms';
 import { HelpTip } from './ui/HelpTip';
 
 const Firmware: React.FC = () => {
-  const { device, version, isBootloader, fwUpdateSupport, deviceType } = useDeviceStore();
+  const {
+    device,
+    version,
+    isBootloader,
+    fwUpdateSupport,
+    deviceType,
+    isInitialized,
+    isLocked,
+    isWorking,
+    setWorking,
+  } = useDeviceStore();
+  const storeError = useFirmwareUpdateStore((s) => s.error);
+  const fwPhase = useFirmwareUpdateStore((s) => s.phase);
+  const autoCheckFW = useFirmwareUpdateStore((s) => s.autoCheckFW);
   const [isLoading, setIsLoading] = useState(false);
   const [progress, setProgress] = useState(0);
   const [error, setError] = useState<string | null>(null);
@@ -18,33 +37,34 @@ const Firmware: React.FC = () => {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
 
-  const isUninitialized = deviceType === DeviceType.UNINITIALIZED;
+  const isUninitialized = isUninitializedDevice({ isInitialized, deviceType });
   const canLoadFirmware = isBootloader || isUninitialized || fwUpdateSupport;
+  const fwBusy = fwPhase === 'checking' || fwPhase === 'downloading' || fwPhase === 'applying';
+  const checkDisabled = isLoading || fwBusy || isLocked || isBootloader || isWorking;
+  const displayError = error || (status ? null : storeError);
 
-  const applyFirmwareBlocks = async (blocks: string[]) => {
+  useEffect(() => bindAutoUpdateFWPrefListeners(), []);
+
+  const runApply = async (blocks: string[]) => {
     if (!device) return;
-
-    if (isBootloader) {
-      // Already in bootloader: load now. Do not persist pending — that is only
-      // for the kick → reconnect gap. Leftover pending would reflash on the next
-      // bootloader PID.
-      clearPendingFirmware();
-      setStatus('Sending firmware blocks...');
-      await device.loadFirmwareBlocks(blocks, setProgress);
+    if (isBootloader) setStatus('Sending firmware blocks...');
+    else setStatus('Triggering reboot to bootloader — do not remove OnlyKey...');
+    const result = await applyFirmwareBlocks({
+      device,
+      blocks,
+      isBootloader,
+      setWorking: (active, message, progress) => {
+        if (typeof progress === 'number') setProgress(progress);
+        setWorking(active, message, progress);
+      },
+    });
+    if (result === 'streamed') {
       setStatus('Firmware load complete!');
-      return;
+    } else {
+      setStatus(
+        'Device rebooting to bootloader. Reconnect and the update will resume automatically.',
+      );
     }
-
-    setStatus('Triggering reboot to bootloader — do not remove OnlyKey...');
-    try {
-      await device.triggerBootloader();
-    } catch (err) {
-      clearPendingFirmware();
-      setStatus(null);
-      throw err;
-    }
-    storePendingFirmware(blocks);
-    setStatus('Device rebooting to bootloader. Reconnect and the update will resume automatically.');
   };
 
   const handleDownloadLatest = async () => {
@@ -54,9 +74,9 @@ const Firmware: React.FC = () => {
     setStatus(null);
     setProgress(0);
     try {
-      const { version: latestVersion, blocks } = await fetchLatestFirmwareRelease();
+      const { version: latestVersion, blocks } = await downloadLatestFirmware();
       setStatus(`Downloaded firmware ${latestVersion}. Starting update...`);
-      await applyFirmwareBlocks(blocks);
+      await runApply(blocks);
     } catch (err: unknown) {
       setStatus(null);
       setError(err instanceof Error ? err.message : String(err));
@@ -76,7 +96,7 @@ const Firmware: React.FC = () => {
     try {
       const blocks = parseFirmwareData(await selectedFile.text());
       if (!blocks.length) throw new Error('Could not parse firmware file.');
-      await applyFirmwareBlocks(blocks);
+      await runApply(blocks);
     } catch (err: unknown) {
       setStatus(null);
       setError(err instanceof Error ? err.message : String(err));
@@ -133,6 +153,16 @@ const Firmware: React.FC = () => {
         </h2>
       </header>
 
+      <label className="flex items-center gap-2 text-sm text-secondary">
+        <input
+          type="checkbox"
+          checked={autoCheckFW}
+          onChange={(e) => setAutoUpdateFW(e.target.checked)}
+          data-testid="auto-update-fw-checkbox"
+        />
+        Automatically check for firmware updates
+      </label>
+
       <StepFieldset>{firmwareInstructions()}</StepFieldset>
 
       <input
@@ -148,6 +178,7 @@ const Firmware: React.FC = () => {
         <SetButton
           onClick={handleLoadFirmware}
           disabled={isLoading || !selectedFile || !canLoadFirmware}
+          title={selectedFile ? undefined : 'Select a firmware file first'}
         >
           Load Firmware to OnlyKey
         </SetButton>
@@ -156,6 +187,17 @@ const Firmware: React.FC = () => {
             Download Latest Firmware
           </SetButton>
         )}
+        <SetButton
+          onClick={() => {
+            setError(null);
+            setStatus(null);
+            void checkNow();
+          }}
+          disabled={checkDisabled}
+          data-testid="firmware-tab-check-now"
+        >
+          Check now
+        </SetButton>
       </div>
 
       {version && (
@@ -170,7 +212,7 @@ const Firmware: React.FC = () => {
           {status || 'Processing...'} {progress > 0 ? `(${progress}%)` : ''}
         </p>
       )}
-      {error && <p className="critical-text">{error}</p>}
+      {displayError && <p className="critical-text">{displayError}</p>}
       {!isLoading && status && <p className="status-success text-sm">{status}</p>}
     </div>
   );

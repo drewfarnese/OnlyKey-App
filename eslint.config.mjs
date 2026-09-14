@@ -3,11 +3,6 @@ import globals from 'globals';
 import reactHooks from 'eslint-plugin-react-hooks';
 import tseslint from 'typescript-eslint';
 
-const nwGlobals = {
-  nw: 'readonly',
-  chrome: 'readonly',
-};
-
 export default tseslint.config(
   {
     ignores: [
@@ -29,7 +24,6 @@ export default tseslint.config(
       globals: {
         ...globals.browser,
         ...globals.node,
-        ...nwGlobals,
       },
     },
     plugins: {
@@ -38,7 +32,7 @@ export default tseslint.config(
     rules: {
       'react-hooks/rules-of-hooks': 'error',
       'react-hooks/exhaustive-deps': 'warn',
-      // Existing 5.7 patterns: typed EventEmitter merge, NW `require()`,
+      // Existing 5.7 patterns: typed EventEmitter merge, preload `require()`,
       // and in-render setup helpers. Tighten these in a dedicated pass.
       '@typescript-eslint/no-explicit-any': 'off',
       '@typescript-eslint/no-require-imports': 'off',
@@ -66,7 +60,6 @@ export default tseslint.config(
       globals: {
         ...globals.node,
         ...globals.browser,
-        ...nwGlobals,
       },
     },
     rules: {
