@@ -1,7 +1,7 @@
 {
   "name": "onlykey-app",
   "productName": "OnlyKey",
-  "version": "6.0.0",
+  "version": "6.1.0",
   "version_name": "6.0.0",
   "description": "Setup and configure OnlyKey",
   "main": "electron/main.js",
