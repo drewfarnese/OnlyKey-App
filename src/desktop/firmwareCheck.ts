@@ -5,6 +5,7 @@ import {
   fetchFirmware,
 } from './firmwareDownload';
 import { userPreferences } from './userPreferences';
+import { isDesktopShell } from '../utils/platform';
 
 export const FW_CHECK_SESSION_KEY = 'ok-fw-checked-session';
 export { FW_API_URL, FirmwareUpdateError } from './firmwareDownload';
@@ -79,7 +80,7 @@ function sessionSet(io: FirmwareUpdateIo, key: string, value: string): void {
 }
 
 function isDesktop(io: FirmwareUpdateIo): boolean {
-  return (io.isDesktop ?? (() => typeof nw !== 'undefined'))();
+  return (io.isDesktop ?? isDesktopShell)();
 }
 
 function autoUpdateEnabled(io: FirmwareUpdateIo): boolean {

@@ -15,3 +15,11 @@ export function isConnectErrorLikelyUdev(message: string): boolean {
     lower.includes('unable to connect')
   );
 }
+/**
+ * True inside a desktop shell (Electron via the preload bridge, or NW.js).
+ * Desktop-only features such as update checks gate on this.
+ */
+export function isDesktopShell(): boolean {
+  if (typeof window !== 'undefined' && window.electronAPI?.isDesktop) return true;
+  return typeof nw !== 'undefined';
+}

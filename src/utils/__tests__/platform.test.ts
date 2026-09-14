@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { isConnectErrorLikelyUdev, isLinux } from '../platform';
+import { isConnectErrorLikelyUdev, isDesktopShell, isLinux } from '../platform';
 
 describe('platform', () => {
   afterEach(() => {
@@ -31,5 +31,21 @@ describe('platform', () => {
     expect(isConnectErrorLikelyUdev('Failed to open hid')).toBe(true);
     expect(isConnectErrorLikelyUdev('Unable to connect')).toBe(true);
     expect(isConnectErrorLikelyUdev('device not found')).toBe(false);
+  });
+
+  it('treats the Electron preload bridge as a desktop shell', () => {
+    vi.stubGlobal('window', { ...window, electronAPI: { isDesktop: true } });
+    expect(isDesktopShell()).toBe(true);
+  });
+
+  it('treats the NW.js global as a desktop shell', () => {
+    vi.stubGlobal('window', { ...window, electronAPI: undefined });
+    vi.stubGlobal('nw', {});
+    expect(isDesktopShell()).toBe(true);
+  });
+
+  it('is not a desktop shell in a plain browser', () => {
+    vi.stubGlobal('window', { ...window, electronAPI: undefined });
+    expect(isDesktopShell()).toBe(false);
   });
 });
