@@ -9,43 +9,110 @@ on:
         default: ""
 
 permissions:
-  contents: write
+  contents: read
+
+env:
+  NODE_VERSION: '22'
 
 jobs:
-  release:
+  # A release is never cut from a tree that fails the same gates as test.yml
+  checks:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
-
-      # pnpm must be installed before setup-node: with a packageManager
-      # field in package.json, setup-node runs pnpm to set up caching
       - uses: pnpm/action-setup@v4
-
       - uses: actions/setup-node@v5
         with:
-          node-version: 22
+          node-version: ${{ env.NODE_VERSION }}
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm lint
+      - run: pnpm typecheck
+      - run: pnpm test:coverage
+      - run: pnpm audit --audit-level=high
+
+  build:
+    name: ${{ matrix.os }} installer
+    needs: checks
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+    steps:
+      - uses: actions/checkout@v5
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v5
+        with:
+          node-version: ${{ env.NODE_VERSION }}
           cache: pnpm
 
-      - name: Install NSIS
-        run: sudo apt-get update && sudo apt-get install -y nsis
+      - name: Install NSIS (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          if (-not (Get-Command makensis -ErrorAction SilentlyContinue) -and
+              -not (Test-Path "${env:ProgramFiles(x86)}\NSIS\makensis.exe")) {
+            choco install nsis --no-progress -y
+          }
 
-      - name: Build Linux .deb
-        run: pnpm run release
-
-      - name: Cross-build Windows installer
+      # Same steps as the package.json `prerelease` script, spelled out so
+      # they run under bash on every runner: stage the production-only
+      # node_modules that ship inside the app, then a full install for the
+      # build tooling and the Electron runtime.
+      - name: Stage production dependencies
+        shell: bash
         run: |
           set -euo pipefail
-          EV=$(node -p "require('electron/package.json').version")
-          echo "Fetching Electron v${EV} win32-x64 runtime..."
-          curl -sSL -o /tmp/electron-win32.zip \
-            "https://github.com/electron/electron/releases/download/v${EV}/electron-v${EV}-win32-x64.zip"
-          mkdir /tmp/electron-win32
-          unzip -q /tmp/electron-win32.zip -d /tmp/electron-win32
-          mv node_modules/electron/dist node_modules/electron/dist-linux
-          mv /tmp/electron-win32 node_modules/electron/dist
-          node -e "require('./tasks/release_windows')({}).then(() => console.log('Windows installer built')).catch((e) => { console.error(e); process.exit(1); })"
-          rm -rf node_modules/electron/dist
-          mv node_modules/electron/dist-linux node_modules/electron/dist
+          rm -rf node_modules release_node_modules
+          pnpm install --prod --frozen-lockfile --config.node-linker=hoisted
+          mkdir release_node_modules
+          cp -R node_modules release_node_modules/node_modules
+          rm -rf node_modules
+          pnpm install --frozen-lockfile
+
+      # pnpm's side-effects cache can restore the electron package without
+      # its downloaded runtime; fetch it explicitly when dist/ is missing
+      - name: Ensure Electron runtime
+        shell: bash
+        run: test -d node_modules/electron/dist || node node_modules/electron/install.js
+
+      - name: Build app package
+        shell: bash
+        run: pnpm run build --env=production
+
+      - name: Build installer
+        shell: bash
+        run: pnpm exec gulp release --env=production
+
+      - name: List built installer
+        shell: bash
+        run: ls -la releases/
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: installer-${{ runner.os }}
+          path: |
+            releases/*.deb
+            releases/*.exe
+            releases/*.dmg
+          if-no-files-found: error
+          retention-days: 14
+
+  publish:
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: installer-*
+          path: releases
+          merge-multiple: true
 
       - name: Create GitHub release
         env:
@@ -57,13 +124,14 @@ jobs:
             TAG="v$(node -p "require('./package.json').version")"
           fi
           echo "Publishing release $TAG"
+          ls -la releases/
           if gh release view "$TAG" --repo "$GITHUB_REPOSITORY" > /dev/null 2>&1; then
-            gh release upload "$TAG" releases/*.deb releases/*.exe \
+            gh release upload "$TAG" releases/* \
               --repo "$GITHUB_REPOSITORY" --clobber
           else
-            gh release create "$TAG" releases/*.deb releases/*.exe \
+            gh release create "$TAG" releases/* \
               --repo "$GITHUB_REPOSITORY" \
               --target "$GITHUB_SHA" \
               --title "OnlyKey $TAG" \
-              --notes "Automated release build: Linux .deb and Windows NSIS installer (cross-built with the win32-x64 Electron runtime)."
+              --notes "Automated release build: Linux .deb, Windows NSIS installer, and macOS DMG (Apple Silicon)."
           fi
