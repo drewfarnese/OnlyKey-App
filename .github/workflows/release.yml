@@ -1,10 +1,23 @@
 name: Release packages
 
+# Cuts a release: runs the same gates as test.yml, bumps package.json on
+# master, tags the bump commit, builds the three installers from that tag,
+# and publishes them to a GitHub release for it.
+
 on:
   workflow_dispatch:
     inputs:
-      tag:
-        description: "Release tag (defaults to v<package.json version>)"
+      bump:
+        description: "Version bump applied to package.json before building"
+        type: choice
+        required: true
+        default: patch
+        options:
+          - patch
+          - minor
+          - major
+      version:
+        description: "Explicit version (X.Y.Z) instead of a bump; leave empty to use the bump"
         required: false
         default: ""
 
@@ -31,9 +44,57 @@ jobs:
       - run: pnpm test:coverage
       - run: pnpm audit --audit-level=high
 
+  # Bump package.json, commit it to master, and tag it. Everything downstream
+  # builds from the tag so the installers, the in-app version, and the
+  # release name all agree.
+  version:
+    needs: checks
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    outputs:
+      version: ${{ steps.bump.outputs.version }}
+      tag: ${{ steps.bump.outputs.tag }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ github.ref }}
+          fetch-depth: 0
+
+      - name: Bump version, commit, and tag
+        id: bump
+        env:
+          BUMP: ${{ github.event.inputs.bump }}
+          EXPLICIT: ${{ github.event.inputs.version }}
+        run: |
+          set -euo pipefail
+          TARGET="${EXPLICIT:-$BUMP}"
+          if [ -n "$EXPLICIT" ] && ! [[ "$EXPLICIT" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "::error::version must look like X.Y.Z, got '$EXPLICIT'"
+            exit 1
+          fi
+          PREVIOUS="$(node -p "require('./package.json').version")"
+          # npm version edits package.json only; the pnpm lockfile does not
+          # record the root version, so --frozen-lockfile stays valid
+          NEW="$(npm version "$TARGET" --no-git-tag-version | sed 's/^v//')"
+          TAG="v$NEW"
+          if git ls-remote --exit-code --tags origin "refs/tags/$TAG" > /dev/null 2>&1; then
+            echo "::error::tag $TAG already exists; pick a different bump or version"
+            exit 1
+          fi
+          echo "Bumping $PREVIOUS -> $NEW"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add package.json
+          git commit -m "Release $TAG"
+          git tag -a "$TAG" -m "OnlyKey App $TAG"
+          git push origin HEAD:"${GITHUB_REF_NAME}" "refs/tags/$TAG"
+          echo "version=$NEW" >> "$GITHUB_OUTPUT"
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+
   build:
     name: ${{ matrix.os }} installer
-    needs: checks
+    needs: version
     runs-on: ${{ matrix.os }}
     timeout-minutes: 45
     strategy:
@@ -42,6 +103,8 @@ jobs:
         os: [ubuntu-latest, windows-latest, macos-latest]
     steps:
       - uses: actions/checkout@v7
+        with:
+          ref: ${{ needs.version.outputs.tag }}
       - uses: pnpm/action-setup@v6
       - uses: actions/setup-node@v7
         with:
@@ -101,12 +164,14 @@ jobs:
           retention-days: 14
 
   publish:
-    needs: build
+    needs: [version, build]
     runs-on: ubuntu-latest
     permissions:
       contents: write
     steps:
       - uses: actions/checkout@v7
+        with:
+          ref: ${{ needs.version.outputs.tag }}
 
       - uses: actions/download-artifact@v8
         with:
@@ -117,21 +182,19 @@ jobs:
       - name: Create GitHub release
         env:
           GH_TOKEN: ${{ github.token }}
+          TAG: ${{ needs.version.outputs.tag }}
         run: |
           set -euo pipefail
-          TAG="${{ github.event.inputs.tag }}"
-          if [ -z "$TAG" ]; then
-            TAG="v$(node -p "require('./package.json').version")"
-          fi
           echo "Publishing release $TAG"
           ls -la releases/
           if gh release view "$TAG" --repo "$GITHUB_REPOSITORY" > /dev/null 2>&1; then
+            # Only reached when re-running a failed publish for the same tag
             gh release upload "$TAG" releases/* \
               --repo "$GITHUB_REPOSITORY" --clobber
           else
             gh release create "$TAG" releases/* \
               --repo "$GITHUB_REPOSITORY" \
-              --target "$GITHUB_SHA" \
-              --title "OnlyKey $TAG" \
-              --notes "Automated release build: Linux .deb, Windows NSIS installer, and macOS DMG (Apple Silicon)."
+              --verify-tag \
+              --title "OnlyKey App $TAG" \
+              --generate-notes
           fi

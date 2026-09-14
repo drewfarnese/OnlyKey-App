@@ -98,7 +98,9 @@ This will create an installer in the `releases/` subfolder. The installer is cre
 
 On Windows, you need to install [NSIS](https://nsis.sourceforge.io/) first, and ensure that it's present in your shell's `%PATH%`. That is, add `C:/Program Files (x86)/NSIS` or similar to your `%PATH%` in the operating system settings. On Mac OS, the DMG is built with the system `hdiutil` tool. On Linux, `dpkg-deb` is required.
 
-The [release workflow](.github/workflows/release.yml) builds all three installers on GitHub-hosted runners after the lint, typecheck, and test gates pass, and attaches them to a GitHub release. The app checks that releases page at startup (configurable under Tools) and offers to open the installer download in your browser.
+To publish a release, run the [release workflow](.github/workflows/release.yml) from the Actions tab and choose the version bump (`patch`, `minor`, or `major`), or type an explicit version. After the lint, typecheck, and test gates pass, the workflow bumps `package.json` on `master`, tags the bump commit, builds all three installers from that tag on GitHub-hosted runners, and publishes them to a GitHub release with generated notes. Do not bump the version by hand before dispatching; the workflow refuses a tag that already exists.
+
+The app checks that releases page at startup (configurable under Tools) and offers to open the installer download in your browser.
 
 To run the same checks CI enforces (lint, typecheck, unit and UI tests with the 75% coverage floor, dependency audit):
 
