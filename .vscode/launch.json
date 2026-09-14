@@ -23,7 +23,7 @@
         "runtimeExecutable": "${workspaceFolder}/node_modules/.bin/electron.cmd"
       },
       "runtimeArgs": [".", "--devtools", "--remote-debugging-port=9222"],
-      "webRoot": "${workspaceFolder}/app",
+      "webRoot": "${workspaceFolder}",
       "cwd": "${workspaceFolder}",
       "timeout": 30000
     },
@@ -42,7 +42,7 @@
       "serverReadyAction": {
         "pattern": "Debugger listening on",
         "action": "debugWithChrome",
-        "webRoot": "${workspaceFolder}/app"
+        "webRoot": "${workspaceFolder}"
       }
     }
   ],

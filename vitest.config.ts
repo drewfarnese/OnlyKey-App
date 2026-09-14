@@ -62,7 +62,7 @@ export default defineConfig({
         },
       },
       // The upstream 'desktop' project exercised the NW.js shell (tests/desktop);
-      // the Electron shell is covered by the existing mocha suite in test/.
+      // the Electron shell (electron/) has no automated suite yet.
     ],
   },
 });

@@ -70,7 +70,7 @@ describe('useFirmwareUpdateStore', () => {
       downloadUrl: 'https://github.com/trustcrypto/OnlyKey-Firmware/releases/download/v3.0.4-prod/Signed_OnlyKey_3_0_4_STD.txt',
       sha256: 'abc',
     });
-    vi.stubGlobal('nw', { Window: { get: () => ({ on: vi.fn() }) } });
+    Object.assign(window, { electronAPI: { isDesktop: true, isElectron: true } });
     seedSafeDevice();
     userPreferences.autoUpdateFW = true;
     resetFirmwareUpdateStoreForTests();
@@ -81,6 +81,7 @@ describe('useFirmwareUpdateStore', () => {
   afterEach(() => {
     vi.useRealTimers();
     resetFirmwareUpdateStoreForTests();
+    delete (window as { electronAPI?: unknown }).electronAPI;
   });
 
   it('treats an absent autoUpdateFW key as on (S0)', async () => {

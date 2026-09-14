@@ -38,12 +38,6 @@ describe('platform', () => {
     expect(isDesktopShell()).toBe(true);
   });
 
-  it('treats the NW.js global as a desktop shell', () => {
-    vi.stubGlobal('window', { ...window, electronAPI: undefined });
-    vi.stubGlobal('nw', {});
-    expect(isDesktopShell()).toBe(true);
-  });
-
   it('is not a desktop shell in a plain browser', () => {
     vi.stubGlobal('window', { ...window, electronAPI: undefined });
     expect(isDesktopShell()).toBe(false);

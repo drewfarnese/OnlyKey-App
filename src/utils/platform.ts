@@ -16,10 +16,9 @@ export function isConnectErrorLikelyUdev(message: string): boolean {
   );
 }
 /**
- * True inside a desktop shell (Electron via the preload bridge, or NW.js).
+ * True inside the Electron shell (the preload bridge is present).
  * Desktop-only features such as update checks gate on this.
  */
 export function isDesktopShell(): boolean {
-  if (typeof window !== 'undefined' && window.electronAPI?.isDesktop) return true;
-  return typeof nw !== 'undefined';
+  return typeof window !== 'undefined' && !!window.electronAPI?.isDesktop;
 }

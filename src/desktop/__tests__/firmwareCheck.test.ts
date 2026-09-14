@@ -81,12 +81,13 @@ describe('checkFirmwareUpdate', () => {
   beforeEach(() => {
     sessionStorage.clear();
     userPreferences.autoUpdateFW = true;
-    vi.stubGlobal('nw', {});
+    Object.assign(window, { electronAPI: { isDesktop: true, isElectron: true } });
     vi.stubGlobal('fetch', vi.fn().mockRejectedValue(new Error('network disabled in tests')));
   });
 
   afterEach(() => {
     vi.unstubAllGlobals();
+    delete (window as { electronAPI?: unknown }).electronAPI;
   });
 
   it('skips when autoUpdateFW is off and force is false (1)', async () => {

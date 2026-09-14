@@ -10,10 +10,9 @@ import {
   useFirmwareUpdateStore,
 } from '../../store/useFirmwareUpdateStore';
 
-const { checkFirmwareUpdate, downloadLatestFirmware, forceShowMainWindow } = vi.hoisted(() => ({
+const { checkFirmwareUpdate, downloadLatestFirmware } = vi.hoisted(() => ({
   checkFirmwareUpdate: vi.fn(),
   downloadLatestFirmware: vi.fn(),
-  forceShowMainWindow: vi.fn(),
 }));
 
 vi.mock('../../desktop/firmwareCheck', async (importOriginal) => {
@@ -32,11 +31,6 @@ vi.mock('../../desktop/firmwareDownload', async (importOriginal) => {
   };
 });
 
-vi.mock('../../desktop/windowVisibility', () => ({
-  forceShowMainWindow,
-}));
-
-const win = { id: 1, on: vi.fn(), removeListener: vi.fn() };
 
 function abortError(): Error {
   const err = new Error('Aborted');
@@ -61,9 +55,7 @@ describe('FirmwareUpdateHost defer-not-dismiss', () => {
     sessionStorage.clear();
     checkFirmwareUpdate.mockReset();
     downloadLatestFirmware.mockReset();
-    forceShowMainWindow.mockClear();
-    win.on.mockClear();
-    vi.stubGlobal('nw', { Window: { get: () => win } });
+    Object.assign(window, { electronAPI: { isDesktop: true, isElectron: true } });
     resetFirmwareUpdateStoreForTests();
     seedDeviceStore({
       isConnected: true,
@@ -80,6 +72,7 @@ describe('FirmwareUpdateHost defer-not-dismiss', () => {
 
   afterEach(() => {
     resetFirmwareUpdateStoreForTests();
+    delete (window as { electronAPI?: unknown }).electronAPI;
   });
 
   it('keeps promptVisible across lock then unlock without a new GitHub GET', async () => {

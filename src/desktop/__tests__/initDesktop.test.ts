@@ -1,74 +1,43 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
+import { initDesktop } from '../initDesktop';
 
-const start = vi.fn();
-const bindWindowVisibilityHandlers = vi.fn();
-
-vi.mock('../windowVisibility', () => ({
-  bindWindowVisibilityHandlers: (...args: unknown[]) => bindWindowVisibilityHandlers(...args),
-}));
+afterEach(() => {
+  delete (window as { electronAPI?: unknown }).electronAPI;
+});
 
 describe('initDesktop', () => {
-  beforeEach(() => {
-    start.mockClear();
-    bindWindowVisibilityHandlers.mockClear();
-    vi.stubGlobal('nw', {
-      App: { startPath: process.cwd() },
-      Window: { get: () => ({ id: 1 }) },
-      Shell: { openExternal: vi.fn() },
-    });
-    vi.stubGlobal('require', (id: string) => {
-      if (id.includes('desktopBg.cjs')) return { start };
-      return require(id);
-    });
-  });
-
-  afterEach(() => {
-    vi.unstubAllGlobals();
-    vi.useRealTimers();
-  });
-
-  it('starts the desktop shell and binds visibility', async () => {
-    vi.useFakeTimers();
-    const { initDesktop } = await import('../initDesktop');
+  it('does nothing outside the Electron shell', async () => {
     await initDesktop();
-    expect(bindWindowVisibilityHandlers).toHaveBeenCalled();
-    await vi.advanceTimersByTimeAsync(100);
-    expect(bindWindowVisibilityHandlers.mock.calls.length).toBeGreaterThanOrEqual(2);
-  });
-
-  it('resolves a darwin app root and falls back when desktopBg.cjs is missing', async () => {
-    vi.stubGlobal('process', { ...process, platform: 'darwin', execPath: 'C:\\OnlyKey.app\\Contents\\MacOS\\nw' });
-    vi.stubGlobal('require', (id: string) => {
-      if (id === 'fs') return { existsSync: () => false };
-      if (id === 'path') return require('path');
-      if (String(id).includes('desktopBg.cjs')) return { start };
-      return require(id);
-    });
-    const { initDesktop } = await import('../initDesktop');
-    await initDesktop();
-    expect(bindWindowVisibilityHandlers).toHaveBeenCalled();
-  });
-
-  it('opens http links in the system browser and ignores missing desktop start', async () => {
-    start.mockImplementation(() => {
-      throw new Error('no tray');
-    });
-    const openExternal = vi.fn();
-    vi.stubGlobal('nw', {
-      App: { startPath: process.cwd() },
-      Window: { get: () => ({ id: 1 }) },
-      Shell: { openExternal },
-    });
-    const { initDesktop } = await import('../initDesktop');
-    await initDesktop();
-
     const anchor = document.createElement('a');
     anchor.href = 'https://docs.crp.to/usersguide.html';
     document.body.appendChild(anchor);
     const event = new MouseEvent('click', { bubbles: true, cancelable: true });
     anchor.dispatchEvent(event);
-    expect(openExternal).toHaveBeenCalledWith(anchor.href);
-    expect(event.defaultPrevented).toBe(true);
+    expect(event.defaultPrevented).toBe(false);
     anchor.remove();
+  });
+
+  it('opens http links in the system browser and ignores anchors without an href', async () => {
+    const openExternal = vi.fn(async () => {});
+    Object.assign(window, { electronAPI: { isElectron: true, isDesktop: true, openExternal } });
+    await initDesktop();
+
+    const external = document.createElement('a');
+    external.href = 'https://docs.crp.to/usersguide.html';
+    document.body.appendChild(external);
+    const event = new MouseEvent('click', { bubbles: true, cancelable: true });
+    external.dispatchEvent(event);
+    expect(openExternal).toHaveBeenCalledWith(external.href);
+    expect(event.defaultPrevented).toBe(true);
+    external.remove();
+
+    const internal = document.createElement('a');
+    internal.textContent = 'no href';
+    document.body.appendChild(internal);
+    const internalEvent = new MouseEvent('click', { bubbles: true, cancelable: true });
+    internal.dispatchEvent(internalEvent);
+    expect(openExternal).toHaveBeenCalledTimes(1);
+    expect(internalEvent.defaultPrevented).toBe(false);
+    internal.remove();
   });
 });

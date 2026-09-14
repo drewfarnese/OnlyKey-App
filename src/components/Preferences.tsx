@@ -6,7 +6,6 @@ import { TOOLTIPS } from '../data/tooltips';
 import { CautionButton, SetButton } from './ui/forms';
 import { PrefRow } from './ui/PrefRow';
 import { PseudoTabBar, PseudoTabPanel } from './ui/PseudoTabs';
-import AppSettings from './AppSettings';
 
 type PrefTab = 'standard' | 'advanced';
 
@@ -291,7 +290,6 @@ const Preferences: React.FC = () => {
             <div>{standardLeft}</div>
             <div>{standardRight}</div>
           </div>
-          <AppSettings />
         </PseudoTabPanel>
 
         <PseudoTabPanel id="advanced" active={activeTab}>
