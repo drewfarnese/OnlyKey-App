@@ -45,7 +45,7 @@
     "@types/react-dom": "^19.2.3",
     "@vitejs/plugin-react": "^5.1.4",
     "@vitest/coverage-v8": "^4.1.10",
-    "electron": "^35.1.5",
+    "electron": "^44.3.0",
     "eslint": "^10.9.1",
     "eslint-plugin-react-hooks": "^7.1.1",
     "fs-jetpack": "^5.1.0",
