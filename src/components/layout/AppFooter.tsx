@@ -2,8 +2,6 @@ import React from 'react';
 import { useDeviceStore } from '../../store/useDeviceStore';
 import { connectedDeviceLabel } from '../../data/deviceProduct';
 
-const APP_VERSION = '5.7.0';
-
 const AppFooter: React.FC = () => {
   const {
     recentMessages,
@@ -38,7 +36,7 @@ const AppFooter: React.FC = () => {
         </ul>
       </div>
       <div className="app-footer-versions">
-        <div>App v{APP_VERSION}</div>
+        <div>App v{__APP_VERSION__}</div>
         {deviceLabel && <div>{deviceLabel}</div>}
         {isConnected && (
           <div className="app-footer-diagnostics" title="Device type detection details">

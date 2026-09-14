@@ -1,6 +1,5 @@
 import { sha256 } from 'js-sha256';
 import { parseFirmwareData } from '../api/device/utils';
-import { normalizeSha256 } from './updater';
 
 export const FW_API_URL =
   'https://api.github.com/repos/trustcrypto/OnlyKey-Firmware/releases/latest';
@@ -54,6 +53,10 @@ export interface FirmwareDownloadResult {
   blocks: string[];
   downloadUrl: string;
   sha256: string;
+}
+
+export function normalizeSha256(value: string): string {
+  return value.trim().toLowerCase().replace(/^sha256:/, '');
 }
 
 export function buildFirmwareFilename(version: string): string {

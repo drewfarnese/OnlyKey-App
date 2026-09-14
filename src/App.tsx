@@ -12,6 +12,7 @@ import Firmware from './components/Firmware';
 import Advanced from './components/Advanced';
 import Tools from './components/Tools';
 import DeviceDialogs from './components/DeviceDialogs';
+import AppUpdateHost from './components/AppUpdateHost';
 import WorkingDialog from './components/dialogs/WorkingDialog';
 import ThemeToggle from './components/ThemeToggle';
 import DeviceMessages from './components/DeviceMessages';
@@ -57,6 +58,8 @@ const App: React.FC = () => {
   return (
     <div className="flex h-screen bg-ok-dark overflow-hidden select-none relative">
       <DeviceDialogs />
+      {/* Outside the sessionEpoch subtree: a lock/unlock must not restart the update check */}
+      <AppUpdateHost />
       {/* sessionEpoch forces remount — wipes WorkingDialog / SlotEditor local state */}
       <WorkingDialog key={`working-${sessionEpoch}`} />
       <SlotEditor key={`slot-editor-${sessionEpoch}`} />

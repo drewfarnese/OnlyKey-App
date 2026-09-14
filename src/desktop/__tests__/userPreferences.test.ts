@@ -6,11 +6,11 @@ describe('userPreferences', () => {
     localStorage.clear();
   });
 
-  it('defaults autoUpdate off and other flags on', () => {
+  it('defaults every flag on', () => {
     expect(userPreferences.closeToTray).toBe(true);
     expect(userPreferences.autoLaunch).toBe(true);
     expect(userPreferences.autoUpdateFW).toBe(true);
-    expect(userPreferences.autoUpdate).toBe(false);
+    expect(userPreferences.autoUpdate).toBe(true);
   });
 
   it('persists boolean flags to localStorage', () => {

@@ -1,12 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 const start = vi.fn();
-const checkForAppUpdate = vi.fn().mockResolvedValue(undefined);
 const bindWindowVisibilityHandlers = vi.fn();
-
-vi.mock('../updater', () => ({
-  checkForAppUpdate: (...args: unknown[]) => checkForAppUpdate(...args),
-}));
 
 vi.mock('../windowVisibility', () => ({
   bindWindowVisibilityHandlers: (...args: unknown[]) => bindWindowVisibilityHandlers(...args),
@@ -15,7 +10,6 @@ vi.mock('../windowVisibility', () => ({
 describe('initDesktop', () => {
   beforeEach(() => {
     start.mockClear();
-    checkForAppUpdate.mockClear();
     bindWindowVisibilityHandlers.mockClear();
     vi.stubGlobal('nw', {
       App: { startPath: process.cwd() },
@@ -33,12 +27,11 @@ describe('initDesktop', () => {
     vi.useRealTimers();
   });
 
-  it('starts the desktop shell, binds visibility, and checks for app updates', async () => {
+  it('starts the desktop shell and binds visibility', async () => {
     vi.useFakeTimers();
     const { initDesktop } = await import('../initDesktop');
     await initDesktop();
     expect(bindWindowVisibilityHandlers).toHaveBeenCalled();
-    expect(checkForAppUpdate).toHaveBeenCalled();
     await vi.advanceTimersByTimeAsync(100);
     expect(bindWindowVisibilityHandlers.mock.calls.length).toBeGreaterThanOrEqual(2);
   });

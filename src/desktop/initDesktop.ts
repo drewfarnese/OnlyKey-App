@@ -1,4 +1,3 @@
-import { checkForAppUpdate } from './updater';
 import { bindWindowVisibilityHandlers } from './windowVisibility';
 
 function resolveAppRoot(): string {
@@ -51,8 +50,8 @@ function ensureNwDesktopStarted(): void {
 
 export async function initDesktop(): Promise<void> {
   if (isElectronShell()) {
-    // Tray, window visibility, and close-to-tray are owned by electron/main.js.
-    checkForAppUpdate().catch(console.error);
+    // Tray, window visibility, and close-to-tray are owned by electron/main.js;
+    // the app update check is started by AppUpdateHost.
 
     // electron/main.js also intercepts will-navigate/window-open; this handler
     // stops the in-app navigation attempt before it starts.
@@ -74,8 +73,6 @@ export async function initDesktop(): Promise<void> {
     ensureNwDesktopStarted();
     bindWindowVisibilityHandlers(win);
   }, 100);
-
-  checkForAppUpdate().catch(console.error);
 
   document.addEventListener('click', (e) => {
     const target = (e.target as HTMLElement).closest('a[href]') as HTMLAnchorElement | null;

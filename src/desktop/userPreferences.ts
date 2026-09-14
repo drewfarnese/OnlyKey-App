@@ -1,11 +1,24 @@
 type PreferenceKey = 'autoLaunch' | 'autoUpdate' | 'autoUpdateFW' | 'closeToTray';
 
+// autoUpdate only controls whether the app checks the GitHub release list at
+// startup; nothing is downloaded without the user clicking through.
 const DEFAULTS: Record<PreferenceKey, boolean> = {
   autoLaunch: true,
-  autoUpdate: false,
+  autoUpdate: true,
   autoUpdateFW: true,
   closeToTray: true,
 };
+
+export const AUTO_UPDATE_PREF_EVENT = 'onlykey-autoUpdate-changed';
+export const AUTO_UPDATE_FW_PREF_EVENT = 'onlykey-autoUpdateFW-changed';
+
+function dispatchPrefEvent(name: string): void {
+  try {
+    window.dispatchEvent(new Event(name));
+  } catch {
+    /* no window (unit tests without DOM) */
+  }
+}
 
 function getBoolean(value: string | boolean | null | undefined): boolean {
   if (typeof value === 'boolean') return value;
@@ -51,6 +64,8 @@ class UserPreferences {
     if (typeof localStorage !== 'undefined') {
       localStorage.setItem(key, getBooleanString(this.cache[key]!));
     }
+    if (key === 'autoUpdate') dispatchPrefEvent(AUTO_UPDATE_PREF_EVENT);
+    if (key === 'autoUpdateFW') dispatchPrefEvent(AUTO_UPDATE_FW_PREF_EVENT);
   }
 }
 
