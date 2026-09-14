@@ -49,21 +49,6 @@ contextBridge.exposeInMainWorld('electronAPI', {
   },
 });
 
-// Expose Node.js modules needed by the app
-contextBridge.exposeInMainWorld('nodeRequire', {
-  // Auto-launch functionality
-  getAutoLaunch: () => {
-    const AutoLaunch = require('auto-launch');
-    return AutoLaunch;
-  },
-  
-  // OS module for platform detection
-  platform: process.platform,
-  
-  // Path utilities
-  join: (...args) => require('path').join(...args),
-});
-
 // Note: WebHID API (navigator.hid) is available directly in the renderer
 // as long as the app is running in a secure context and has proper permissions
 // configured in the main process.

@@ -245,19 +245,28 @@ function isOnlyKeyDevice(device) {
 
 // Handle WebHID device selection
 function setupHIDHandlers() {
-  // Automatically check permissions for HID devices
+  // Synchronous permission checks. Only HID (for OnlyKey devices) and
+  // sanitized clipboard writes are granted; everything else the renderer
+  // could ask for (camera, geolocation, notifications, ...) is denied.
   session.defaultSession.setPermissionCheckHandler((webContents, permission, requestingOrigin, details) => {
     if (permission === 'hid') {
-      // Allow HID access for OnlyKey devices
       if (details.device && isOnlyKeyDevice(details.device)) {
         return true;
       }
-      // Check if this device was previously granted
       if (details.device && grantedDevicePermissions.has(details.device.deviceId)) {
         return true;
       }
+      // A bare capability check (no specific device) is fine; device access
+      // is still decided per device by setDevicePermissionHandler
+      return !details.device;
     }
-    return true; // Allow other permissions to proceed normally
+    return permission === 'clipboard-sanitized-write';
+  });
+
+  // Asynchronous permission requests (getUserMedia, notifications, ...):
+  // nothing in the app needs these
+  session.defaultSession.setPermissionRequestHandler((webContents, permission, callback) => {
+    callback(permission === 'clipboard-sanitized-write');
   });
 
   // Handle device permission requests - auto-grant for OnlyKey devices
